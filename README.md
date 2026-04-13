@@ -122,7 +122,7 @@ Users can also capture and share photos, browse NASA-powered content, and intera
 
 ## [BONUS] Digital Wireframes & Mockups
 
-![UI Mockup](./astronomy-ui-mockup.png)
+![UI Mockup](./MockUp.png)
 
 ---
 
