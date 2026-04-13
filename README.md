@@ -128,7 +128,7 @@ Users can also capture and share photos, browse NASA-powered content, and intera
 
 ## [BONUS] 
 
-![Prototype](./Proto.mov)
+![Prototype](./prototype.mp4)
 
 ---
 
