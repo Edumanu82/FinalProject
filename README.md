@@ -128,7 +128,8 @@ Users can also capture and share photos, browse NASA-powered content, and intera
 
 ## [BONUS] 
 
-![Prototype](./prototype.mp4)
+![Prototype] https://www.figma.com/design/rvceHaUh0ibTxoIphUCAyd/Astronomy-app-wireframe-navigation-flow?node-id=2-4&t=c5Qb0km21iTCdbnY-1
+
 
 ---
 
