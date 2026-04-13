@@ -116,7 +116,7 @@ Users can also capture and share photos, browse NASA-powered content, and intera
 
 ## Wireframes
 
-![Wireframe](./Markup.pdf)
+![Wireframe](./WireFrame.png)
 
 ---
 
