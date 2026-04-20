@@ -2,7 +2,6 @@
 //  HomeScreen.swift
 //  FinalProject
 //
-//  Created by Codex on 4/15/26.
 //
 
 import SwiftUI
@@ -11,23 +10,36 @@ struct HomeScreen: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
-                    homeHeader
-                    skyHero
-                    tonightSection
-                    eventsSection
-                    feedSection
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 22) {
+                        homeHeader
+                        skyHero
+                        tonightSection
+                        eventsSection
+                        feedSection
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 28)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 28)
-                .padding(.bottom, 24)
-            }
 
-            bottomNavigation
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                bottomNavigation
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+            }
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.07, green: 0.09, blue: 0.16),
+                        Color(red: 0.03, green: 0.04, blue: 0.09)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+            )
         }
     }
 
@@ -45,14 +57,42 @@ struct HomeScreen: View {
 
             Spacer()
 
-            Button("Log Out") {
-                viewModel.signOut()
+            HStack(spacing: 12) {
+                NavigationLink(destination: ProfileScreen()) {
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(Color.white.opacity(0.18))
+                            .frame(width: 42, height: 42)
+                            .overlay(
+                                Image(systemName: "person.fill")
+                                    .foregroundStyle(.white)
+                            )
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Profile")
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+
+                            Text("View account")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.08), in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Button("Log Out") {
+                    viewModel.signOut()
+                }
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.08), in: Capsule())
             }
-            .font(.system(size: 13, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color.white.opacity(0.08), in: Capsule())
         }
     }
 
@@ -73,7 +113,6 @@ struct HomeScreen: View {
                     )
                     .frame(height: 230)
 
-                // Decorative stars help the card feel closer to the provided mockup.
                 StarFieldOverlay()
                     .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
 
@@ -172,7 +211,11 @@ struct HomeScreen: View {
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
                         .fill(LinearGradient(colors: post.gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(height: 180)
-                        .overlay(StarFieldOverlay().opacity(0.7).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous)))
+                        .overlay(
+                            StarFieldOverlay()
+                                .opacity(0.7)
+                                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        )
 
                     Text(post.caption)
                         .font(.system(size: 15, weight: .medium, design: .rounded))
