@@ -81,11 +81,13 @@ struct HomeScreen: View {
         switch viewModel.selectedTab {
         case .home:
             skyHero
+            objectSearchSection
             tonightSection
             eventsSection
             feedSection
         case .sky:
             skyHero
+            objectSearchSection
             tonightSection
         case .feed:
             feedSection
@@ -98,7 +100,7 @@ struct HomeScreen: View {
 
     private var skyHero: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SectionHeader(eyebrow: "Live View", title: "Tonight's Sky", action: "Sky map")
+            SectionHeader(eyebrow: "Live View", title: "Tonight's Sky", action: viewModel.skySnapshot.locationLabel)
 
             VStack(alignment: .leading, spacing: 18) {
                 ZStack(alignment: .topTrailing) {
@@ -133,17 +135,18 @@ struct HomeScreen: View {
                         .padding(22)
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Clear conditions for Jupiter and Vega")
+                        Text(viewModel.skySnapshot.headline)
                             .font(.system(size: 24, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
 
-                        Text("Use the sky map after sunset for the strongest visibility window.")
+                        Text(viewModel.skySnapshot.subheadline)
                             .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundStyle(.white.opacity(0.74))
+                            .fixedSize(horizontal: false, vertical: true)
 
                         HStack(spacing: 10) {
-                            heroBadge(text: "Sky map")
-                            heroBadge(text: "94% visible")
+                            heroBadge(text: viewModel.skySnapshot.moonPhase)
+                            heroBadge(text: "\(viewModel.skySnapshot.moonIllumination)% moonlight")
                         }
                     }
                     .padding(22)
@@ -151,27 +154,152 @@ struct HomeScreen: View {
                 }
 
                 HStack(spacing: 14) {
-                    statChip(title: "Sunset", value: "7:44 PM")
-                    statChip(title: "Clouds", value: "Low")
-                    statChip(title: "Moon", value: "12%")
+                    statChip(title: "Sunset", value: viewModel.skyConditions.sunsetText)
+                    statChip(title: "Clouds", value: viewModel.skyConditions.cloudCoverText)
+                    statChip(title: "Temp", value: viewModel.skyConditions.temperatureText)
                 }
+
+                skyLocationCard
             }
         }
     }
 
     private var tonightSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionHeader(eyebrow: "Planets", title: "Visible Now", action: "3 objects")
+            SectionHeader(eyebrow: "Sky Picks", title: "Visible Now", action: "\(viewModel.visibleObjects.count) objects")
+
+            Text(viewModel.visibleObjectsStatusMessage)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(viewModel.liveVisibleObjectCount > 0 ? AstroTheme.success : AstroTheme.muted)
 
             ForEach(viewModel.visibleObjects) { object in
                 InfoRowCard(
                     title: object.name,
                     subtitle: object.type,
                     detail: object.timeVisible,
-                    sfSymbol: object.sfSymbol
+                    sfSymbol: object.sfSymbol,
+                    imageURL: object.imageURL,
+                    source: object.dataSource
                 )
             }
         }
+    }
+
+    private var objectSearchSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader(eyebrow: "Search", title: "Sky Objects", action: "Planets, stars, deep sky")
+
+            VStack(alignment: .leading, spacing: 14) {
+                TextField("Search Saturn, Orion, Milky Way...", text: $viewModel.objectSearchQuery)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .foregroundStyle(AstroTheme.ink)
+                    .tint(AstroTheme.primary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(AstroTheme.surfaceAlt, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(AstroTheme.border, lineWidth: 1)
+                    )
+
+                Text(viewModel.astronomyAPIStatusMessage)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(viewModel.remoteObjectSearchResults.isEmpty ? AstroTheme.muted : AstroTheme.success)
+
+                if viewModel.isObjectSearchLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .tint(AstroTheme.primary)
+
+                        Text("Searching live astronomy catalog...")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(AstroTheme.muted)
+                    }
+                }
+
+                ForEach(viewModel.objectSearchResults.prefix(5)) { object in
+                    NavigationLink(destination: SkyObjectDetailScreen(object: object)) {
+                        HStack(alignment: .top, spacing: 14) {
+                            searchResultThumbnail(for: object)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 8) {
+                                    Text(object.name)
+                                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                                        .foregroundStyle(AstroTheme.ink)
+
+                                    Text(object.dataSource.badgeTitle)
+                                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                                        .foregroundStyle(object.dataSource.tint)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(object.dataSource.tint.opacity(0.14), in: Capsule())
+                                }
+
+                                Text(object.type)
+                                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                                    .foregroundStyle(AstroTheme.primary)
+
+                                Text(object.summary)
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundStyle(AstroTheme.muted)
+                                    .lineLimit(2)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(AstroTheme.muted.opacity(0.7))
+                        }
+                        .padding(16)
+                        .surfaceCard()
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .task(id: viewModel.objectSearchQuery) {
+                await viewModel.refreshObjectSearch()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func searchResultThumbnail(for object: SearchableSkyObject) -> some View {
+        if let imageURL = object.imageURL {
+            AsyncImage(url: imageURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                default:
+                    searchResultPlaceholder(for: object)
+                }
+            }
+            .frame(width: 58, height: 58)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        } else {
+            searchResultPlaceholder(for: object)
+        }
+    }
+
+    private func searchResultPlaceholder(for object: SearchableSkyObject) -> some View {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [AstroTheme.primary.opacity(0.9), AstroTheme.secondary.opacity(0.85)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: 58, height: 58)
+            .overlay(
+                Image(systemName: iconName(for: object.type))
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+            )
     }
 
     private var eventsSection: some View {
@@ -360,5 +488,155 @@ struct HomeScreen: View {
         .padding(14)
         .surfaceCard()
     }
-}
 
+    private var skyLocationCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(viewModel.locationStatusMessage)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(AstroTheme.ink.opacity(0.78))
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Search another sky")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(AstroTheme.muted)
+
+                HStack(spacing: 10) {
+                    TextField("City or region", text: $viewModel.manualLocationQuery)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .foregroundStyle(AstroTheme.ink)
+                        .tint(AstroTheme.primary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 13)
+                        .background(AstroTheme.surfaceAlt, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(AstroTheme.border, lineWidth: 1)
+                        )
+
+                    Button {
+                        Task {
+                            await viewModel.searchForLocation()
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if viewModel.isSearchingLocation {
+                                ProgressView()
+                                    .tint(.white)
+                            } else {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 14, weight: .bold))
+                            }
+
+                            Text("Search")
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 13)
+                        .background(
+                            LinearGradient(
+                                colors: [AstroTheme.primary, AstroTheme.secondary],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ),
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isSearchingLocation)
+                }
+            }
+
+            HStack(spacing: 12) {
+                compactSkyFact(title: "Visibility", value: viewModel.skyConditions.visibilityText)
+                compactSkyFact(title: "Wind", value: viewModel.skyConditions.windText)
+                compactSkyFact(title: "Sunrise", value: viewModel.skyConditions.sunriseText)
+            }
+
+            if viewModel.isSkyDataLoading {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .tint(AstroTheme.primary)
+
+                    Text("Refreshing live sky data and NASA image previews...")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(AstroTheme.muted)
+                }
+            } else if !viewModel.skyDataErrorMessage.isEmpty {
+                Text(viewModel.skyDataErrorMessage)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color(red: 0.70, green: 0.19, blue: 0.25))
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+
+            Button {
+                viewModel.requestLocationAccess()
+            } label: {
+                HStack {
+                    Image(systemName: viewModel.activeLocationName == nil && viewModel.canRequestLocation ? "location.fill" : "location.viewfinder")
+                        .font(.system(size: 15, weight: .bold))
+
+                    Text(viewModel.locationButtonTitle)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+
+                    Spacer()
+                }
+                .foregroundStyle(viewModel.canRequestLocation ? .white : AstroTheme.ink)
+                .padding(.vertical, 14)
+                .padding(.horizontal, 16)
+                .background(locationButtonBackgroundStyle, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(18)
+        .surfaceCard()
+    }
+
+    private var locationButtonBackgroundStyle: AnyShapeStyle {
+        if viewModel.activeLocationName == nil && viewModel.canRequestLocation {
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [AstroTheme.primary, AstroTheme.secondary],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+        } else {
+            return AnyShapeStyle(AstroTheme.surfaceAlt)
+        }
+    }
+
+    private func compactSkyFact(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(AstroTheme.muted)
+
+            Text(value)
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(AstroTheme.ink)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(AstroTheme.surfaceAlt, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func iconName(for objectType: String) -> String {
+        switch objectType.lowercased() {
+        case "planet":
+            return "globe.americas.fill"
+        case "constellation":
+            return "sparkles"
+        case "star":
+            return "star.fill"
+        case "galaxy", "nebula", "star cluster":
+            return "moon.stars.fill"
+        default:
+            return "sparkle"
+        }
+    }
+}

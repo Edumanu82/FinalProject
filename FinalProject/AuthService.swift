@@ -10,6 +10,36 @@ import Foundation
 // Keep the backend URL empty until the real database/API is ready.
 enum AppConfiguration {
     static let databaseURL = ""
+
+    static var astronomyApplicationID: String {
+        configuredValue(
+            environmentKey: "ASTRONOMY_APPLICATION_ID",
+            infoKey: "AstronomyApplicationID"
+        )
+    }
+
+    static var astronomyApplicationSecret: String {
+        configuredValue(
+            environmentKey: "ASTRONOMY_APPLICATION_SECRET",
+            infoKey: "AstronomyApplicationSecret"
+        )
+    }
+
+    static var hasAstronomyCredentials: Bool {
+        !astronomyApplicationID.isEmpty && !astronomyApplicationSecret.isEmpty
+    }
+
+    private static func configuredValue(environmentKey: String, infoKey: String) -> String {
+        if let environmentValue = ProcessInfo.processInfo.environment[environmentKey], !environmentValue.isEmpty {
+            return environmentValue
+        }
+
+        if let infoValue = Bundle.main.object(forInfoDictionaryKey: infoKey) as? String, !infoValue.isEmpty {
+            return infoValue
+        }
+
+        return ""
+    }
 }
 
 enum AuthError: LocalizedError {
