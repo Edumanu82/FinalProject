@@ -157,7 +157,7 @@ struct AuthScreen: View {
             .buttonStyle(.plain)
             .disabled(viewModel.isLoading)
 
-            Text("`databaseURL` is intentionally blank right now. Auth uses a local mock session until you wire in the backend.")
+            Text("Authentication is connected to Firebase using the bundled project configuration.")
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(AstroTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)

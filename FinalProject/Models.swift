@@ -31,7 +31,7 @@ enum HomeTab: String, CaseIterable {
 }
 
 struct UserProfile: Codable, Identifiable {
-    let id: UUID
+    let id: String
     let username: String
     let email: String
 }
