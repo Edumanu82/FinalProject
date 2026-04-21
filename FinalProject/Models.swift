@@ -16,14 +16,16 @@ enum HomeTab: String, CaseIterable {
     case home = "Home"
     case sky = "Sky"
     case feed = "Feed"
+    case events = "Events"
     case profile = "Profile"
 
     var icon: String {
         switch self {
         case .home: return "house.fill"
         case .sky: return "sparkles"
-        case .feed: return "rectangle.stack.fill"
-        case .profile: return "person.fill"
+        case .feed: return "square.grid.2x2.fill"
+        case .events: return "calendar"
+        case .profile: return "gearshape.fill"
         }
     }
 }

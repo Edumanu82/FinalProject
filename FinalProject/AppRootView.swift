@@ -12,15 +12,11 @@ struct AppRootView: View {
     @StateObject private var viewModel = AppViewModel()
 
     var body: some View {
-        ZStack {
-            AppBackgroundView()
-
-            Group {
-                if viewModel.currentUser == nil {
-                    AuthScreen(viewModel: viewModel)
-                } else {
-                    HomeScreen(viewModel: viewModel)
-                }
+        Group {
+            if viewModel.currentUser == nil {
+                AuthScreen(viewModel: viewModel)
+            } else {
+                HomeScreen(viewModel: viewModel)
             }
         }
         .preferredColorScheme(.dark)
