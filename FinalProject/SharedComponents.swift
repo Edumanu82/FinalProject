@@ -76,46 +76,113 @@ struct InfoRowCard: View {
     let subtitle: String
     let detail: String
     let sfSymbol: String
+    let imageURL: URL?
+    let source: SkyDataSource
 
     var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
+        VStack(alignment: .leading, spacing: 14) {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [AstroTheme.warning.opacity(0.95), AstroTheme.primary.opacity(0.85)],
+                            colors: [AstroTheme.surfaceAlt, Color.white],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
+                    .frame(height: 150)
 
-                Image(systemName: sfSymbol)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
+                AsyncImage(url: imageURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .empty:
+                        ProgressView()
+                            .tint(AstroTheme.primary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    case .failure:
+                        skyPlaceholder
+                    @unknown default:
+                        skyPlaceholder
+                    }
+                }
+                .frame(height: 150)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+
+                HStack(spacing: 10) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [AstroTheme.warning.opacity(0.95), AstroTheme.primary.opacity(0.85)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+
+                        Image(systemName: sfSymbol)
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(width: 44, height: 44)
+
+                    Text(subtitle)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Color.black.opacity(0.28), in: Capsule())
+
+                    Text(source.badgeTitle)
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(source.tint.opacity(0.92), in: Capsule())
+                }
+                .padding(14)
             }
-            .frame(width: 52, height: 52)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(AstroTheme.ink)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(AstroTheme.ink)
 
-                Text(subtitle)
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(AstroTheme.muted)
+                    Text(detail)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(AstroTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(AstroTheme.muted.opacity(0.65))
             }
-
-            Spacer()
-
-            Text(detail)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(AstroTheme.primary)
-                .multilineTextAlignment(.trailing)
         }
         .padding(16)
         .background(AstroTheme.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(AstroTheme.border, lineWidth: 1))
         .shadow(color: Color.black.opacity(0.05), radius: 16, x: 0, y: 10)
+    }
+
+    private var skyPlaceholder: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.17, green: 0.19, blue: 0.33),
+                Color(red: 0.30, green: 0.22, blue: 0.52),
+                Color(red: 0.10, green: 0.12, blue: 0.21)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay(StarFieldOverlay().opacity(0.8))
     }
 }
 
