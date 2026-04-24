@@ -7,6 +7,14 @@
 
 import Foundation
 
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+
+#if canImport(FirebaseFirestore)
+import FirebaseFirestore
+#endif
+
 enum AppConfiguration {
     static let databaseURL = ""
 
@@ -42,74 +50,97 @@ enum AppConfiguration {
 }
 
 enum AuthError: LocalizedError {
-    case invalidURL
-    case invalidResponse
-    case missingToken
+    case firebaseAuthMissing
+    case invalidUser
+    case missingUsername
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL:
-            return "Add your database URL before connecting live auth."
-        case .invalidResponse:
-            return "The server response could not be read."
-        case .missingToken:
-            return "The server did not return a valid user session."
+        case .firebaseAuthMissing:
+            return "Add FirebaseAuth to the app target before using Firebase login."
+        case .invalidUser:
+            return "The Firebase user session could not be read."
+        case .missingUsername:
+            return "Choose a username before creating your account."
         }
     }
 }
 
 struct AstronomyAuthService {
-    func login(email: String, password: String) async throws -> UserProfile {
-        if AppConfiguration.databaseURL.isEmpty {
-            try await Task.sleep(for: .milliseconds(700))
-            return UserProfile(id: UUID().uuidString, username: mockUsername(from: email), email: email)
-            
-        }
+    var currentUser: UserProfile? {
+        #if canImport(FirebaseAuth)
+        guard let user = Auth.auth().currentUser else { return nil }
+        return makeUserProfile(from: user)
+        #else
+        return nil
+        #endif
+    }
 
-        return try await performAuthRequest(
-            path: "/login",
-            payload: ["email": email, "password": password]
-        )
+    func login(email: String, password: String) async throws -> UserProfile {
+        #if canImport(FirebaseAuth)
+        let result = try await Auth.auth().signIn(withEmail: email, password: password)
+        return makeUserProfile(from: result.user)
+        #else
+        throw AuthError.firebaseAuthMissing
+        #endif
     }
 
     func signUp(username: String, email: String, password: String) async throws -> UserProfile {
-        if AppConfiguration.databaseURL.isEmpty {
-            try await Task.sleep(for: .milliseconds(700))
-            return UserProfile(id: UUID().uuidString, username: username, email: email)
+        guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AuthError.missingUsername
         }
 
-        return try await performAuthRequest(
-            path: "/register",
-            payload: ["username": username, "email": email, "password": password]
+        #if canImport(FirebaseAuth)
+        let result = try await Auth.auth().createUser(withEmail: email, password: password)
+        let request = result.user.createProfileChangeRequest()
+        request.displayName = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await request.commitChanges()
+        try await upsertUserProfileDocument(for: result.user, username: username.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        guard let refreshedUser = Auth.auth().currentUser else {
+            throw AuthError.invalidUser
+        }
+
+        return makeUserProfile(from: refreshedUser)
+        #else
+        throw AuthError.firebaseAuthMissing
+        #endif
+    }
+
+    func signOut() throws {
+        #if canImport(FirebaseAuth)
+        try Auth.auth().signOut()
+        #else
+        throw AuthError.firebaseAuthMissing
+        #endif
+    }
+
+    #if canImport(FirebaseAuth)
+    private func makeUserProfile(from user: FirebaseAuth.User) -> UserProfile {
+        let username = user.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedUsername = (username?.isEmpty == false ? username : nil)
+            ?? user.email?.split(separator: "@").first.map(String.init)
+            ?? "Astronomy User"
+
+        return UserProfile(
+            id: user.uid,
+            username: resolvedUsername,
+            email: user.email ?? ""
         )
     }
 
-    private func performAuthRequest(path: String, payload: [String: String]) async throws -> UserProfile {
-        guard let url = URL(string: AppConfiguration.databaseURL + path) else {
-            throw AuthError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(payload)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-            throw AuthError.invalidResponse
-        }
-
-        let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-
-        guard let user = authResponse.user else {
-            throw AuthError.missingToken
-        }
-
-        return user
+    private func upsertUserProfileDocument(for user: FirebaseAuth.User, username: String) async throws {
+        #if canImport(FirebaseFirestore)
+        try await FirebaseFirestore.Firestore.firestore()
+            .collection("users")
+            .document(user.uid)
+            .setData([
+                "userID": user.uid,
+                "username": username,
+                "email": user.email ?? "",
+                "updatedAt": FirebaseFirestore.Timestamp(date: Date())
+            ], merge: true)
+        #endif
     }
-
-    private func mockUsername(from email: String) -> String {
-        email.split(separator: "@").first.map(String.init) ?? "Astronomy User"
-    }
+    #endif
 }

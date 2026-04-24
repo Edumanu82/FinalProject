@@ -99,16 +99,40 @@ struct EventCard: Identifiable {
 }
 
 struct FeedPost: Identifiable {
-    let id = UUID()
+    let id: String
+    let userID: String
     let username: String
     let caption: String
+    let createdAt: Date
     let likes: Int
     let comments: Int
     let gradient: [Color]
 
+    var timestampText: String {
+        RelativeDateTimeFormatter().localizedString(for: createdAt, relativeTo: Date())
+    }
+
     static let sampleData: [FeedPost] = [
-        .init(username: "stargazer_ana", caption: "Caught Jupiter breaking through thin clouds tonight.", likes: 128, comments: 24, gradient: [Color(red: 0.36, green: 0.45, blue: 0.62), Color(red: 0.13, green: 0.17, blue: 0.27)]),
-        .init(username: "cosmic.miles", caption: "Tried a longer exposure for Cygnus and finally got a clean frame.", likes: 94, comments: 11, gradient: [Color(red: 0.48, green: 0.53, blue: 0.63), Color(red: 0.19, green: 0.22, blue: 0.33)])
+        .init(
+            id: UUID().uuidString,
+            userID: "sample-ana",
+            username: "stargazer_ana",
+            caption: "Caught Jupiter breaking through thin clouds tonight.",
+            createdAt: Date().addingTimeInterval(-7_200),
+            likes: 128,
+            comments: 24,
+            gradient: [Color(red: 0.36, green: 0.45, blue: 0.62), Color(red: 0.13, green: 0.17, blue: 0.27)]
+        ),
+        .init(
+            id: UUID().uuidString,
+            userID: "sample-miles",
+            username: "cosmic.miles",
+            caption: "Tried a longer exposure for Cygnus and finally got a clean frame.",
+            createdAt: Date().addingTimeInterval(-18_000),
+            likes: 94,
+            comments: 11,
+            gradient: [Color(red: 0.48, green: 0.53, blue: 0.63), Color(red: 0.19, green: 0.22, blue: 0.33)]
+        )
     ]
 }
 
