@@ -26,10 +26,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 @main
 struct FinalProjectApp: App {
-
-    init() {
-        FirebaseApp.configure()
-    }
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {

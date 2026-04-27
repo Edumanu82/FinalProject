@@ -53,7 +53,7 @@ struct HomeScreen: View {
             Spacer()
 
             HStack(spacing: 10) {
-                NavigationLink(destination: ProfileScreen(user: viewModel.currentUser)) {
+                NavigationLink(destination: ProfileScreen(user: viewModel.currentUser, viewModel: viewModel))  {
                     Circle()
                         .fill(AstroTheme.surface)
                         .frame(width: 44, height: 44)
@@ -500,7 +500,7 @@ struct HomeScreen: View {
                 Spacer()
             }
 
-            NavigationLink(destination: ProfileScreen(user: viewModel.currentUser)) {
+            NavigationLink(destination: ProfileScreen(user: viewModel.currentUser, viewModel: viewModel)) {
                 Text("Open profile")
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
@@ -665,8 +665,20 @@ struct HomeScreen: View {
         }
     }
 
+    
+    @ViewBuilder
     private func feedPostMedia(for post: FeedPost) -> some View {
-        postGradientPlaceholder(for: post)
+        if let imageData = post.imageData,
+           let uiImage = UIImage(data: imageData) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFill()
+                .frame(height: 180)
+                .frame(maxWidth: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        } else {
+            postGradientPlaceholder(for: post)
+        }
     }
 
     private func submitNewPost() {
@@ -684,7 +696,10 @@ struct HomeScreen: View {
         isSubmittingPost = true
 
         Task {
-            let errorMessage = await viewModel.createPost(caption: trimmedCaption)
+            let errorMessage = await viewModel.createPost(
+                caption: trimmedCaption,
+                imageData: selectedPhotoData
+            )
             await MainActor.run {
                 isSubmittingPost = false
 

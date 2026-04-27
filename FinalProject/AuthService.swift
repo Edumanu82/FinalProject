@@ -9,14 +9,6 @@ import Foundation
 import FirebaseAuth
 import FirebaseFirestore
 
-#if canImport(FirebaseAuth)
-import FirebaseAuth
-#endif
-
-#if canImport(FirebaseFirestore)
-import FirebaseFirestore
-#endif
-
 enum AppConfiguration {
     static let databaseURL = ""
 
@@ -39,11 +31,13 @@ enum AppConfiguration {
     }
 
     private static func configuredValue(environmentKey: String, infoKey: String) -> String {
-        if let environmentValue = ProcessInfo.processInfo.environment[environmentKey], !environmentValue.isEmpty {
+        if let environmentValue = ProcessInfo.processInfo.environment[environmentKey],
+           !environmentValue.isEmpty {
             return environmentValue
         }
 
-        if let infoValue = Bundle.main.object(forInfoDictionaryKey: infoKey) as? String, !infoValue.isEmpty {
+        if let infoValue = Bundle.main.object(forInfoDictionaryKey: infoKey) as? String,
+           !infoValue.isEmpty {
             return infoValue
         }
 
@@ -68,6 +62,16 @@ enum AuthError: LocalizedError {
 struct AstronomyAuthService {
     private let auth = Auth.auth()
     private let db = Firestore.firestore()
+
+    var currentUser: UserProfile? {
+        guard let firebaseUser = auth.currentUser else { return nil }
+
+        return UserProfile(
+            id: firebaseUser.uid,
+            username: firebaseUser.displayName ?? "Astronomy User",
+            email: firebaseUser.email ?? ""
+        )
+    }
 
     func login(email: String, password: String) async throws -> UserProfile {
         let result = try await auth.signIn(withEmail: email, password: password)
@@ -111,19 +115,6 @@ struct AstronomyAuthService {
             email: email
         )
     }
-
-    private func upsertUserProfileDocument(for user: FirebaseAuth.User, username: String) async throws {
-        #if canImport(FirebaseFirestore)
-        try await FirebaseFirestore.Firestore.firestore()
-            .collection("users")
-            .document(user.uid)
-            .setData([
-                "userID": user.uid,
-                "username": username,
-                "email": user.email ?? "",
-                "updatedAt": FirebaseFirestore.Timestamp(date: Date())
-            ], merge: true)
-        #endif
-    }
-    #endif
+    
+    
 }

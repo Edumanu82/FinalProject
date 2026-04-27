@@ -9,12 +9,12 @@ import SwiftUI
 
 struct ProfileScreen: View {
     let user: UserProfile?
+    @ObservedObject var viewModel: AppViewModel
     @State private var showEditProfile = false
-    @State private var localUser: UserProfile?
 
-    init(user: UserProfile?) {
-        self.user = user
-        _localUser = State(initialValue: user)
+    private var userPostCount: Int {
+        guard let user else { return 0 }
+        return viewModel.feedPosts.filter { $0.userID == user.id }.count
     }
 
     var body: some View {
@@ -37,18 +37,18 @@ struct ProfileScreen: View {
                                     .foregroundStyle(.white)
                             )
 
-                        Text(localUser?.username ?? "Astronomy User")
+                        Text(viewModel.currentUser?.username ?? user?.username ?? "Astronomy User")
                             .font(.system(size: 26, weight: .bold, design: .rounded))
                             .foregroundStyle(AstroTheme.ink)
 
-                        Text(localUser?.email ?? "user@email.com")
+                        Text(viewModel.currentUser?.email ?? user?.email ?? "user@email.com")
                             .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundStyle(AstroTheme.muted)
                     }
                     .padding(.top, 30)
 
                     HStack(spacing: 14) {
-                        profileStat(title: "Posts", value: "24")
+                        profileStat(title: "Posts", value: "\(userPostCount)")
                         profileStat(title: "Saved", value: "18")
                         profileStat(title: "Trips", value: "6")
                     }
@@ -73,10 +73,10 @@ struct ProfileScreen: View {
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showEditProfile) {
-            EditProfileScreen(user: $localUser)
-        }
-        .onChange(of: user?.id) { _, _ in
-            localUser = user
+            EditProfileScreen(user: Binding(
+                get: { viewModel.currentUser },
+                set: { viewModel.currentUser = $0 }
+            ))
         }
     }
 
