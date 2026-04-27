@@ -40,6 +40,7 @@
 			isa = PBXGroup;
 			children = (
 				6155157B2F8825C7003CFD07 /* FinalProject */,
+				066501542F9AF00700A4B692 /* Frameworks */,
 				6155157A2F8825C7003CFD07 /* Products */,
 			);
 			sourceTree = "<group>";

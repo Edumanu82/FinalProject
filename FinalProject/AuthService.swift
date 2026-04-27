@@ -9,6 +9,14 @@ import Foundation
 import FirebaseAuth
 import FirebaseFirestore
 
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+
+#if canImport(FirebaseFirestore)
+import FirebaseFirestore
+#endif
+
 enum AppConfiguration {
     static let databaseURL = ""
 
@@ -103,4 +111,19 @@ struct AstronomyAuthService {
             email: email
         )
     }
+
+    private func upsertUserProfileDocument(for user: FirebaseAuth.User, username: String) async throws {
+        #if canImport(FirebaseFirestore)
+        try await FirebaseFirestore.Firestore.firestore()
+            .collection("users")
+            .document(user.uid)
+            .setData([
+                "userID": user.uid,
+                "username": username,
+                "email": user.email ?? "",
+                "updatedAt": FirebaseFirestore.Timestamp(date: Date())
+            ], merge: true)
+        #endif
+    }
+    #endif
 }

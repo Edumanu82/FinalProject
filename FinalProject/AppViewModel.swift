@@ -54,12 +54,16 @@ final class AppViewModel: ObservableObject {
     private var authStateHandle: AuthStateDidChangeListenerHandle?
 
     init() {
+        currentUser = authService.currentUser
         bindLocationUpdates()
         bindAuthState()
         refreshSkyData()
 
         Task { [weak self] in
             await self?.refreshObjectSearch()
+            if self?.currentUser != nil {
+                await self?.loadRecentPosts()
+            }
         }
     }
 
@@ -108,6 +112,10 @@ final class AppViewModel: ObservableObject {
             currentUser = user
             startUserListener(for: user.id)
         }
+
+        if didSignUp {
+            await loadRecentPosts()
+        }
     }
 
     func signOut() {
@@ -125,6 +133,8 @@ final class AppViewModel: ObservableObject {
         confirmPassword = ""
         selectedTab = .home
         authMode = .login
+        feedPosts = FeedPost.sampleData
+        feedErrorMessage = ""
     }
 
     func requestLocationAccess() {
@@ -325,16 +335,19 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    private func runAuthAction(_ action: () async throws -> Void) async {
+    private func runAuthAction(_ action: () async throws -> Void) async -> Bool {
         isLoading = true
 
         do {
             try await action()
+            isLoading = false
+            return true
         } catch {
             errorMessage = error.localizedDescription
         }
 
         isLoading = false
+        return false
     }
 
     private func bindLocationUpdates() {
@@ -472,5 +485,126 @@ final class SkyLocationManager: NSObject, ObservableObject, CLLocationManagerDel
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Keep the current fallback snapshot if the system cannot provide a location update.
+    }
+}
+
+enum FeedPostServiceError: LocalizedError {
+    case firebaseSDKMissing
+    case currentUserMissing
+    case malformedDocument
+    case insufficientPermissions
+
+    var errorDescription: String? {
+        switch self {
+        case .firebaseSDKMissing:
+            return "Add FirebaseFirestore to the app target before using the live astro feed."
+        case .currentUserMissing:
+            return "Sign in before creating a post."
+        case .malformedDocument:
+            return "A post in Firestore is missing required fields."
+        case .insufficientPermissions:
+            return "Your Firebase account does not have permission to read or write astro feed posts yet."
+        }
+    }
+}
+
+struct FeedPostService {
+    func fetchRecentPosts(limit: Int = 20) async throws -> [FeedPost] {
+        #if canImport(FirebaseFirestore)
+        do {
+            let snapshot = try await Firestore.firestore()
+                .collection("feedPosts")
+                .order(by: "createdAt", descending: true)
+                .limit(to: limit)
+                .getDocuments()
+
+            return try snapshot.documents.map(makeFeedPost(from:))
+        } catch {
+            throw mapFirestoreError(error)
+        }
+        #else
+        return Array(FeedPost.sampleData.prefix(limit))
+        #endif
+    }
+
+    func createPost(caption: String, user: UserProfile?) async throws {
+        guard let user else {
+            throw FeedPostServiceError.currentUserMissing
+        }
+
+        #if canImport(FirebaseFirestore)
+        let createdAt = Date()
+
+        do {
+            try await Firestore.firestore()
+                .collection("feedPosts")
+                .addDocument(data: [
+                    "userID": user.id,
+                    "username": user.username,
+                    "caption": caption,
+                    "createdAt": Timestamp(date: createdAt),
+                    "likes": 0,
+                    "comments": 0
+                ])
+        } catch {
+            throw mapFirestoreError(error)
+        }
+        #else
+        throw FeedPostServiceError.firebaseSDKMissing
+        #endif
+    }
+
+    #if canImport(FirebaseFirestore)
+    private func makeFeedPost(from document: QueryDocumentSnapshot) throws -> FeedPost {
+        let data = document.data()
+
+        guard
+            let userID = data["userID"] as? String,
+            let username = data["username"] as? String,
+            let caption = data["caption"] as? String
+        else {
+            throw FeedPostServiceError.malformedDocument
+        }
+
+        let createdAtTimestamp = data["createdAt"] as? Timestamp
+        let likes = data["likes"] as? Int ?? 0
+        let comments = data["comments"] as? Int ?? 0
+
+        return FeedPost(
+            id: document.documentID,
+            userID: userID,
+            username: username,
+            caption: caption,
+            createdAt: createdAtTimestamp?.dateValue() ?? .distantPast,
+            likes: likes,
+            comments: comments,
+            gradient: gradient(for: username)
+        )
+    }
+    #endif
+
+    private func gradient(for username: String) -> [Color] {
+        let palette: [[Color]] = [
+            [Color(red: 0.36, green: 0.45, blue: 0.62), Color(red: 0.13, green: 0.17, blue: 0.27)],
+            [Color(red: 0.48, green: 0.53, blue: 0.63), Color(red: 0.19, green: 0.22, blue: 0.33)],
+            [Color(red: 0.18, green: 0.21, blue: 0.35), Color(red: 0.43, green: 0.36, blue: 0.95)],
+            [Color(red: 0.17, green: 0.34, blue: 0.56), Color(red: 0.11, green: 0.14, blue: 0.24)]
+        ]
+
+        let index = abs(username.hashValue) % palette.count
+        return palette[index]
+    }
+
+    private func mapFirestoreError(_ error: Error) -> Error {
+        #if canImport(FirebaseFirestore)
+        let nsError = error as NSError
+        if nsError.domain == FirestoreErrorDomain,
+           let code = FirestoreErrorCode.Code(rawValue: nsError.code),
+           code == .permissionDenied {
+            return FeedPostServiceError.insufficientPermissions
+        }
+        #endif
+
+        return error
     }
 }

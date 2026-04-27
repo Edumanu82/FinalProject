@@ -4,10 +4,17 @@
 //
 //
 
+import PhotosUI
 import SwiftUI
 
 struct HomeScreen: View {
     @ObservedObject var viewModel: AppViewModel
+    @State private var isShowingCreatePostSheet = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var selectedPhotoData: Data?
+    @State private var newPostCaption = ""
+    @State private var createPostErrorMessage = ""
+    @State private var isSubmittingPost = false
 
     var body: some View {
         NavigationStack {
@@ -334,6 +341,50 @@ struct HomeScreen: View {
         VStack(alignment: .leading, spacing: 14) {
             SectionHeader(eyebrow: "Community", title: "Astro Feed", action: "Latest")
 
+            Button {
+                isShowingCreatePostSheet = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 16, weight: .bold))
+
+                    Text("Create Post")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+
+                    Spacer()
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .background(
+                    LinearGradient(
+                        colors: [AstroTheme.primary, AstroTheme.secondary],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+                )
+            }
+            .buttonStyle(.plain)
+
+            if viewModel.isFeedLoading {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .tint(AstroTheme.primary)
+
+                    Text("Loading the latest posts from Firebase...")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(AstroTheme.muted)
+                }
+            } else if !viewModel.feedErrorMessage.isEmpty {
+                Text(viewModel.feedErrorMessage)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color(red: 0.70, green: 0.19, blue: 0.25))
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+
             ForEach(viewModel.feedPosts) { post in
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
@@ -347,7 +398,7 @@ struct HomeScreen: View {
                                 .font(.system(size: 16, weight: .bold, design: .rounded))
                                 .foregroundStyle(AstroTheme.ink)
 
-                            Text("2h ago")
+                            Text(post.timestampText)
                                 .font(.system(size: 12, weight: .medium, design: .rounded))
                                 .foregroundStyle(AstroTheme.muted)
                         }
@@ -355,14 +406,7 @@ struct HomeScreen: View {
                         Spacer()
                     }
 
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(LinearGradient(colors: post.gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .frame(height: 180)
-                        .overlay(
-                            StarFieldOverlay()
-                                .opacity(0.7)
-                                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        )
+                    feedPostMedia(for: post)
 
                     Text(post.caption)
                         .font(.system(size: 15, weight: .medium, design: .rounded))
@@ -378,6 +422,18 @@ struct HomeScreen: View {
                 .padding(18)
                 .surfaceCard()
             }
+        }
+        .sheet(isPresented: $isShowingCreatePostSheet, onDismiss: resetCreatePostDraft) {
+            CreatePostSheet(
+                selectedPhotoItem: $selectedPhotoItem,
+                selectedPhotoData: $selectedPhotoData,
+                caption: $newPostCaption,
+                errorMessage: $createPostErrorMessage,
+                isSubmittingPost: $isSubmittingPost,
+                onCreatePost: submitNewPost
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -609,6 +665,58 @@ struct HomeScreen: View {
         }
     }
 
+    private func feedPostMedia(for post: FeedPost) -> some View {
+        postGradientPlaceholder(for: post)
+    }
+
+    private func submitNewPost() {
+        guard selectedPhotoData != nil else {
+            createPostErrorMessage = "Choose a photo to post."
+            return
+        }
+
+        let trimmedCaption = newPostCaption.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCaption.isEmpty else {
+            createPostErrorMessage = "Add a description for your post."
+            return
+        }
+
+        isSubmittingPost = true
+
+        Task {
+            let errorMessage = await viewModel.createPost(caption: trimmedCaption)
+            await MainActor.run {
+                isSubmittingPost = false
+
+                if let errorMessage {
+                    createPostErrorMessage = errorMessage
+                } else {
+                    isShowingCreatePostSheet = false
+                    resetCreatePostDraft()
+                }
+            }
+        }
+    }
+
+    private func resetCreatePostDraft() {
+        selectedPhotoItem = nil
+        selectedPhotoData = nil
+        newPostCaption = ""
+        createPostErrorMessage = ""
+        isSubmittingPost = false
+    }
+
+    private func postGradientPlaceholder(for post: FeedPost) -> some View {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .fill(LinearGradient(colors: post.gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+            .frame(height: 180)
+            .overlay(
+                StarFieldOverlay()
+                    .opacity(0.7)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            )
+    }
+
     private func compactSkyFact(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
@@ -637,6 +745,130 @@ struct HomeScreen: View {
             return "moon.stars.fill"
         default:
             return "sparkle"
+        }
+    }
+}
+
+private struct CreatePostSheet: View {
+    @Binding var selectedPhotoItem: PhotosPickerItem?
+    @Binding var selectedPhotoData: Data?
+    @Binding var caption: String
+    @Binding var errorMessage: String
+    @Binding var isSubmittingPost: Bool
+
+    let onCreatePost: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Share a fresh sky capture with the astro feed.")
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundStyle(AstroTheme.muted)
+
+                    PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                        if let selectedPhotoData, let uiImage = UIImage(data: selectedPhotoData) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 220)
+                                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        } else {
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [AstroTheme.primary.opacity(0.92), AstroTheme.secondary.opacity(0.82)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(height: 220)
+                                .overlay(
+                                    VStack(spacing: 10) {
+                                        Image(systemName: "photo.badge.plus")
+                                            .font(.system(size: 30, weight: .bold))
+                                        Text("Upload a photo")
+                                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                                        Text("Pick an image from your library")
+                                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                                            .foregroundStyle(.white.opacity(0.78))
+                                    }
+                                    .foregroundStyle(.white)
+                                )
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Description")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(AstroTheme.muted)
+
+                        TextEditor(text: $caption)
+                            .frame(minHeight: 130)
+                            .scrollContentBackground(.hidden)
+                            .padding(12)
+                            .background(AstroTheme.surfaceAlt, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .stroke(AstroTheme.border, lineWidth: 1)
+                            )
+                            .foregroundStyle(AstroTheme.ink)
+                    }
+
+                    if !errorMessage.isEmpty {
+                        Text(errorMessage)
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color(red: 0.70, green: 0.19, blue: 0.25))
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+
+                    Button(action: onCreatePost) {
+                        Group {
+                            if isSubmittingPost {
+                                ProgressView()
+                                    .tint(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 15)
+                            } else {
+                                Text("Post to Feed")
+                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 15)
+                            }
+                        }
+                        .background(
+                            LinearGradient(
+                                colors: [AstroTheme.primary, AstroTheme.secondary],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ),
+                            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSubmittingPost)
+                }
+                .padding(20)
+            }
+            .background(AstroTheme.canvas)
+            .navigationTitle("Create Post")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .task(id: selectedPhotoItem) {
+            guard let selectedPhotoItem else { return }
+
+            do {
+                selectedPhotoData = try await selectedPhotoItem.loadTransferable(type: Data.self)
+                errorMessage = ""
+            } catch {
+                selectedPhotoData = nil
+                errorMessage = "The selected photo could not be loaded."
+            }
         }
     }
 }
