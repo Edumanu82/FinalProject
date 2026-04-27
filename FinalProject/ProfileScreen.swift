@@ -4,10 +4,18 @@
 //
 //  Created by Carlos Fletes on 4/19/26.
 //
+
 import SwiftUI
 
 struct ProfileScreen: View {
     let user: UserProfile?
+    @State private var showEditProfile = false
+    @State private var localUser: UserProfile?
+
+    init(user: UserProfile?) {
+        self.user = user
+        _localUser = State(initialValue: user)
+    }
 
     var body: some View {
         ScreenContainer {
@@ -29,11 +37,11 @@ struct ProfileScreen: View {
                                     .foregroundStyle(.white)
                             )
 
-                        Text(user?.username ?? "Astronomy User")
+                        Text(localUser?.username ?? "Astronomy User")
                             .font(.system(size: 26, weight: .bold, design: .rounded))
                             .foregroundStyle(AstroTheme.ink)
 
-                        Text(user?.email ?? "user@email.com")
+                        Text(localUser?.email ?? "user@email.com")
                             .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundStyle(AstroTheme.muted)
                     }
@@ -46,7 +54,13 @@ struct ProfileScreen: View {
                     }
 
                     VStack(spacing: 14) {
-                        profileRow(icon: "person.crop.circle", title: "Edit Profile")
+                        Button {
+                            showEditProfile = true
+                        } label: {
+                            profileRow(icon: "person.crop.circle", title: "Edit Profile")
+                        }
+                        .buttonStyle(.plain)
+
                         profileRow(icon: "gearshape", title: "Settings")
                         profileRow(icon: "bell", title: "Notifications")
                         profileRow(icon: "lock.shield", title: "Privacy")
@@ -58,6 +72,12 @@ struct ProfileScreen: View {
         }
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showEditProfile) {
+            EditProfileScreen(user: $localUser)
+        }
+        .onChange(of: user?.id) { _, _ in
+            localUser = user
+        }
     }
 
     private func profileStat(title: String, value: String) -> some View {

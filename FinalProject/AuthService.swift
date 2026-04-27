@@ -3,9 +3,11 @@
 //  FinalProject
 //
 //  Created by Codex on 4/15/26.
-
+//
 
 import Foundation
+import FirebaseAuth
+import FirebaseFirestore
 
 enum AppConfiguration {
     static let databaseURL = ""
@@ -42,74 +44,63 @@ enum AppConfiguration {
 }
 
 enum AuthError: LocalizedError {
-    case invalidURL
     case invalidResponse
-    case missingToken
+    case missingUser
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL:
-            return "Add your database URL before connecting live auth."
         case .invalidResponse:
             return "The server response could not be read."
-        case .missingToken:
-            return "The server did not return a valid user session."
+        case .missingUser:
+            return "No authenticated user was found."
         }
     }
 }
 
 struct AstronomyAuthService {
+    private let auth = Auth.auth()
+    private let db = Firestore.firestore()
+
     func login(email: String, password: String) async throws -> UserProfile {
-        if AppConfiguration.databaseURL.isEmpty {
-            try await Task.sleep(for: .milliseconds(700))
-            return UserProfile(id: UUID().uuidString, username: mockUsername(from: email), email: email)
-            
+        let result = try await auth.signIn(withEmail: email, password: password)
+        let uid = result.user.uid
+
+        let snapshot = try await db.collection("users").document(uid).getDocument()
+
+        guard let data = snapshot.data() else {
+            throw AuthError.missingUser
         }
 
-        return try await performAuthRequest(
-            path: "/login",
-            payload: ["email": email, "password": password]
+        let username = data["username"] as? String
+            ?? email.split(separator: "@").first.map(String.init)
+            ?? "Astronomy User"
+
+        let storedEmail = data["email"] as? String ?? email
+
+        return UserProfile(
+            id: uid,
+            username: username,
+            email: storedEmail
         )
     }
 
     func signUp(username: String, email: String, password: String) async throws -> UserProfile {
-        if AppConfiguration.databaseURL.isEmpty {
-            try await Task.sleep(for: .milliseconds(700))
-            return UserProfile(id: UUID().uuidString, username: username, email: email)
-        }
+        let result = try await auth.createUser(withEmail: email, password: password)
+        let uid = result.user.uid
 
-        return try await performAuthRequest(
-            path: "/register",
-            payload: ["username": username, "email": email, "password": password]
+        let userData: [String: Any] = [
+            "userID": uid,
+            "username": username,
+            "email": email,
+            "updatedAt": Timestamp(date: Date())
+        ]
+
+        try await db.collection("users").document(uid).setData(userData)
+
+        return UserProfile(
+            id: uid,
+            username: username,
+            email: email
         )
-    }
-
-    private func performAuthRequest(path: String, payload: [String: String]) async throws -> UserProfile {
-        guard let url = URL(string: AppConfiguration.databaseURL + path) else {
-            throw AuthError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(payload)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-            throw AuthError.invalidResponse
-        }
-
-        let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-
-        guard let user = authResponse.user else {
-            throw AuthError.missingToken
-        }
-
-        return user
-    }
-
-    private func mockUsername(from email: String) -> String {
-        email.split(separator: "@").first.map(String.init) ?? "Astronomy User"
     }
 }

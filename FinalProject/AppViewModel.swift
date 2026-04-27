@@ -8,10 +8,12 @@
 import Combine
 import CoreLocation
 import SwiftUI
+import FirebaseAuth
+import FirebaseFirestore
 
-// Central view model keeps auth state and mock content in one place for this first build.
 @MainActor
 final class AppViewModel: ObservableObject {
+
     @Published var currentUser: UserProfile?
     @Published var authMode: AuthMode = .login
     @Published var isLoading = false
@@ -41,16 +43,31 @@ final class AppViewModel: ObservableObject {
     let authService = AstronomyAuthService()
     let upcomingEvents = EventCard.sampleData
     let feedPosts = FeedPost.sampleData
+
     private let locationManager = SkyLocationManager()
     private let skyAPIService = SkyAPIService()
+    private let db = Firestore.firestore()
+
     private var cancellables = Set<AnyCancellable>()
     private var skyRefreshTask: Task<Void, Never>?
+    private var userListener: ListenerRegistration?
+    private var authStateHandle: AuthStateDidChangeListenerHandle?
 
     init() {
         bindLocationUpdates()
+        bindAuthState()
         refreshSkyData()
+
         Task { [weak self] in
             await self?.refreshObjectSearch()
+        }
+    }
+
+    deinit {
+        userListener?.remove()
+
+        if let authStateHandle {
+            Auth.auth().removeStateDidChangeListener(authStateHandle)
         }
     }
 
@@ -63,7 +80,9 @@ final class AppViewModel: ObservableObject {
         }
 
         await runAuthAction {
-            currentUser = try await authService.login(email: loginEmail, password: loginPassword)
+            let user = try await authService.login(email: loginEmail, password: loginPassword)
+            currentUser = user
+            startUserListener(for: user.id)
         }
     }
 
@@ -81,16 +100,25 @@ final class AppViewModel: ObservableObject {
         }
 
         await runAuthAction {
-            currentUser = try await authService.signUp(
+            let user = try await authService.signUp(
                 username: signUpUsername,
                 email: signUpEmail,
                 password: signUpPassword
             )
+            currentUser = user
+            startUserListener(for: user.id)
         }
     }
 
     func signOut() {
-        // Reset state so the app returns to the login view cleanly.
+        do {
+            try Auth.auth().signOut()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        userListener?.remove()
+        userListener = nil
         currentUser = nil
         loginPassword = ""
         signUpPassword = ""
@@ -226,6 +254,48 @@ final class AppViewModel: ObservableObject {
         await enrichDisplayedSearchResults()
 
         isObjectSearchLoading = false
+    }
+
+    private func bindAuthState() {
+        authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] _, firebaseUser in
+            guard let self else { return }
+
+            if let firebaseUser {
+                self.startUserListener(for: firebaseUser.uid)
+            } else {
+                self.userListener?.remove()
+                self.userListener = nil
+                self.currentUser = nil
+            }
+        }
+    }
+
+    private func startUserListener(for uid: String) {
+        userListener?.remove()
+
+        userListener = db.collection("users").document(uid).addSnapshotListener { [weak self] snapshot, error in
+            guard let self else { return }
+
+            if let error {
+                print("User listener error:", error.localizedDescription)
+                return
+            }
+
+            guard let snapshot, snapshot.exists, let data = snapshot.data() else {
+                return
+            }
+
+            let username = data["username"] as? String ?? "Astronomy User"
+            let email = data["email"] as? String ?? "user@email.com"
+
+            Task { @MainActor in
+                self.currentUser = UserProfile(
+                    id: snapshot.documentID,
+                    username: username,
+                    email: email
+                )
+            }
+        }
     }
 
     private func baseSearchResults(for query: String) -> [SearchableSkyObject] {
