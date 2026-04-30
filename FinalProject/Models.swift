@@ -107,6 +107,8 @@ struct FeedPost: Identifiable {
     let likes: Int
     let comments: Int
     let gradient: [Color]
+    let imageData: Data?
+    let imageBase64: String?
 
     var timestampText: String {
         RelativeDateTimeFormatter().localizedString(for: createdAt, relativeTo: Date())
@@ -121,7 +123,9 @@ struct FeedPost: Identifiable {
             createdAt: Date().addingTimeInterval(-7_200),
             likes: 128,
             comments: 24,
-            gradient: [Color(red: 0.36, green: 0.45, blue: 0.62), Color(red: 0.13, green: 0.17, blue: 0.27)]
+            gradient: [Color(red: 0.36, green: 0.45, blue: 0.62), Color(red: 0.13, green: 0.17, blue: 0.27)],
+            imageData: nil,
+            imageBase64: nil
         ),
         .init(
             id: UUID().uuidString,
@@ -131,11 +135,12 @@ struct FeedPost: Identifiable {
             createdAt: Date().addingTimeInterval(-18_000),
             likes: 94,
             comments: 11,
-            gradient: [Color(red: 0.48, green: 0.53, blue: 0.63), Color(red: 0.19, green: 0.22, blue: 0.33)]
+            gradient: [Color(red: 0.48, green: 0.53, blue: 0.63), Color(red: 0.19, green: 0.22, blue: 0.33)],
+            imageData: nil,
+            imageBase64: nil
         )
     ]
 }
-
 struct AuthResponse: Codable {
     let user: UserProfile?
 }

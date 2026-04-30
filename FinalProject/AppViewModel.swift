@@ -8,14 +8,16 @@
 import Combine
 import CoreLocation
 import SwiftUI
-
-#if canImport(FirebaseFirestore)
+import FirebaseAuth
 import FirebaseFirestore
-#endif
 
-// Central view model keeps auth state and mock content in one place for this first build.
+
 @MainActor
 final class AppViewModel: ObservableObject {
+    
+    @Published var isFeedLoading = false
+    @Published var feedErrorMessage = ""
+    @Published var feedPosts: [FeedPost] = []
     @Published var currentUser: UserProfile?
     @Published var authMode: AuthMode = .login
     @Published var isLoading = false
@@ -41,29 +43,33 @@ final class AppViewModel: ObservableObject {
     @Published var displayedObjectSearchResults: [SearchableSkyObject] = []
     @Published var isObjectSearchLoading = false
     @Published var astronomyAPIErrorMessage = ""
-    @Published var isFeedLoading = false
-    @Published var feedErrorMessage = ""
+    private var feedListener: ListenerRegistration?
 
     let authService = AstronomyAuthService()
     let upcomingEvents = EventCard.sampleData
-    @Published var feedPosts = FeedPost.sampleData
+
     private let locationManager = SkyLocationManager()
     private let skyAPIService = SkyAPIService()
-    private let feedPostService = FeedPostService()
+    private let db = Firestore.firestore()
+
     private var cancellables = Set<AnyCancellable>()
     private var skyRefreshTask: Task<Void, Never>?
+    private var userListener: ListenerRegistration?
+    private var authStateHandle: AuthStateDidChangeListenerHandle?
 
     init() {
         currentUser = authService.currentUser
         bindLocationUpdates()
+        bindAuthState()
+        startFeedListener()
         refreshSkyData()
+        
+
         Task { [weak self] in
             await self?.refreshObjectSearch()
-            if self?.currentUser != nil {
-                await self?.loadRecentPosts()
-            }
         }
     }
+
 
     func login() async {
         errorMessage = ""
@@ -73,12 +79,12 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        let didLogin = await runAuthAction {
-            currentUser = try await authService.login(email: loginEmail, password: loginPassword)
-        }
-
-        if didLogin {
-            await loadRecentPosts()
+        await runAuthAction {
+            let user = try await authService.login(email: loginEmail, password: loginPassword)
+            currentUser = user
+            feedErrorMessage = ""
+            startUserListener(for: user.id)
+            startFeedListener()
         }
     }
 
@@ -95,36 +101,187 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        let didSignUp = await runAuthAction {
-            currentUser = try await authService.signUp(
+        await runAuthAction {
+            let user = try await authService.signUp(
                 username: signUpUsername,
                 email: signUpEmail,
                 password: signUpPassword
             )
-        }
-
-        if didSignUp {
-            await loadRecentPosts()
+            currentUser = user
+            feedErrorMessage = ""
+            startUserListener(for: user.id)
+            startFeedListener()
         }
     }
 
     func signOut() {
-        // Reset state so the app returns to the login view cleanly.
         do {
-            try authService.signOut()
+            try Auth.auth().signOut()
         } catch {
             errorMessage = error.localizedDescription
         }
+
+        userListener?.remove()
+        userListener = nil
+        feedListener?.remove()
+        feedListener = nil
+
         currentUser = nil
+        feedPosts = []
+        feedErrorMessage = ""
+        isFeedLoading = false
+
         loginPassword = ""
         signUpPassword = ""
         confirmPassword = ""
         selectedTab = .home
         authMode = .login
-        feedPosts = FeedPost.sampleData
+    }
+    
+    func startFeedListener() {
+        feedListener?.remove()
+
+        isFeedLoading = true
         feedErrorMessage = ""
+
+        feedListener = db.collection("feedPosts")
+            .order(by: "createdAt", descending: true)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+
+                if let error {
+                    Task { @MainActor in
+                        self.isFeedLoading = false
+                        self.feedErrorMessage = error.localizedDescription
+                    }
+                    return
+                }
+
+                guard let documents = snapshot?.documents else {
+                    Task { @MainActor in
+                        self.feedPosts = []
+                        self.isFeedLoading = false
+                        self.feedErrorMessage = ""
+                    }
+                    return
+                }
+
+                let posts = documents.compactMap { document -> FeedPost? in
+                    let data = document.data()
+
+                    guard
+                        let userID = data["userID"] as? String,
+                        let username = data["username"] as? String,
+                        let caption = data["caption"] as? String,
+                        let createdAt = data["createdAt"] as? Timestamp,
+                        let likes = data["likes"] as? Int,
+                        let comments = data["comments"] as? Int
+                    else {
+                        return nil
+                    }
+
+                    let imageBase64 = data["imageBase64"] as? String
+                    let decodedImageData: Data?
+
+                    if let imageBase64 {
+                        decodedImageData = Data(base64Encoded: imageBase64)
+                    } else {
+                        decodedImageData = nil
+                    }
+
+                    return FeedPost(
+                        id: document.documentID,
+                        userID: userID,
+                        username: username,
+                        caption: caption,
+                        createdAt: createdAt.dateValue(),
+                        likes: likes,
+                        comments: comments,
+                        gradient: [
+                            AstroTheme.primary.opacity(0.9),
+                            AstroTheme.secondary.opacity(0.8)
+                        ],
+                        imageData: decodedImageData,
+                        imageBase64: imageBase64
+                    )
+                }
+
+                Task { @MainActor in
+                    self.feedPosts = posts
+                    self.isFeedLoading = false
+                    self.feedErrorMessage = ""
+                }
+            }
+    }
+    
+    func createPost(caption: String, imageData: Data?) async -> String? {
+        print("🚀 Starting createPost")
+
+        guard let currentUser else {
+            print("❌ No current user")
+            return "You must be signed in to create a post."
+        }
+
+        guard let imageData else {
+            print("❌ No image data")
+            return "Choose a photo to post."
+        }
+
+        let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedCaption.isEmpty else {
+            print("❌ Caption empty")
+            return "Add a description for your post."
+        }
+
+        isFeedLoading = true
+        feedErrorMessage = ""
+
+        do {
+            guard let uiImage = UIImage(data: imageData) else {
+                isFeedLoading = false
+                return "The selected image could not be processed."
+            }
+
+            guard let compressedData = uiImage.jpegData(compressionQuality: 0.2) else {
+                isFeedLoading = false
+                return "The selected image could not be compressed."
+            }
+
+            print("✅ Original image size:", imageData.count)
+            print("✅ Compressed image size:", compressedData.count)
+
+            let imageBase64 = compressedData.base64EncodedString()
+
+            let postData: [String: Any] = [
+                "userID": currentUser.id,
+                "username": currentUser.username,
+                "caption": trimmedCaption,
+                "createdAt": Timestamp(date: Date()),
+                "likes": 0,
+                "comments": 0,
+                "imageBase64": imageBase64
+            ]
+
+            print("📝 Saving Firestore document...")
+
+            try await db.collection("feedPosts").addDocument(data: postData)
+
+            print("✅ Firestore save SUCCESS")
+
+            isFeedLoading = false
+            feedErrorMessage = ""
+            return nil
+
+        } catch {
+            print("🔥 ERROR:", error.localizedDescription)
+            isFeedLoading = false
+            feedErrorMessage = error.localizedDescription
+            return error.localizedDescription
+        }
     }
 
+    
     func requestLocationAccess() {
         activeLocationName = nil
         locationManager.requestLocationAccess()
@@ -254,41 +411,52 @@ final class AppViewModel: ObservableObject {
         isObjectSearchLoading = false
     }
 
-    func loadRecentPosts() async {
-        guard currentUser != nil else {
-            isFeedLoading = false
-            feedErrorMessage = ""
-            feedPosts = FeedPost.sampleData
-            return
+    private func bindAuthState() {
+        authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] _, firebaseUser in
+            guard let self else { return }
+
+            if let firebaseUser {
+                self.feedErrorMessage = ""
+                self.startUserListener(for: firebaseUser.uid)
+                self.startFeedListener()
+            } else {
+                self.userListener?.remove()
+                self.userListener = nil
+                self.feedListener?.remove()
+                self.feedListener = nil
+                self.currentUser = nil
+                self.feedPosts = []
+                self.feedErrorMessage = ""
+                self.isFeedLoading = false
+            }
         }
-
-        isFeedLoading = true
-
-        do {
-            let posts = try await feedPostService.fetchRecentPosts(limit: 20)
-            feedPosts = posts
-            feedErrorMessage = ""
-        } catch {
-            feedPosts = FeedPost.sampleData
-            feedErrorMessage = error.localizedDescription
-        }
-
-        isFeedLoading = false
     }
 
-    func createPost(caption: String) async -> String? {
-        let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func startUserListener(for uid: String) {
+        userListener?.remove()
 
-        guard !trimmedCaption.isEmpty else {
-            return "Add a description for your post."
-        }
+        userListener = db.collection("users").document(uid).addSnapshotListener { [weak self] snapshot, error in
+            guard let self else { return }
 
-        do {
-            try await feedPostService.createPost(caption: trimmedCaption, user: currentUser)
-            await loadRecentPosts()
-            return nil
-        } catch {
-            return error.localizedDescription
+            if let error {
+                print("User listener error:", error.localizedDescription)
+                return
+            }
+
+            guard let snapshot, snapshot.exists, let data = snapshot.data() else {
+                return
+            }
+
+            let username = data["username"] as? String ?? "Astronomy User"
+            let email = data["email"] as? String ?? "user@email.com"
+
+            Task { @MainActor in
+                self.currentUser = UserProfile(
+                    id: snapshot.documentID,
+                    username: username,
+                    email: email
+                )
+            }
         }
     }
 
@@ -319,19 +487,16 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    private func runAuthAction(_ action: () async throws -> Void) async -> Bool {
+    private func runAuthAction(_ action: () async throws -> Void) async {
         isLoading = true
 
         do {
             try await action()
-            isLoading = false
-            return true
         } catch {
             errorMessage = error.localizedDescription
         }
 
         isLoading = false
-        return false
     }
 
     private func bindLocationUpdates() {
@@ -470,125 +635,7 @@ final class SkyLocationManager: NSObject, ObservableObject, CLLocationManagerDel
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Keep the current fallback snapshot if the system cannot provide a location update.
     }
+    
+    
 }
 
-enum FeedPostServiceError: LocalizedError {
-    case firebaseSDKMissing
-    case currentUserMissing
-    case malformedDocument
-    case insufficientPermissions
-
-    var errorDescription: String? {
-        switch self {
-        case .firebaseSDKMissing:
-            return "Add FirebaseFirestore to the app target before using the live astro feed."
-        case .currentUserMissing:
-            return "Sign in before creating a post."
-        case .malformedDocument:
-            return "A post in Firestore is missing required fields."
-        case .insufficientPermissions:
-            return "Your Firebase account does not have permission to read or write astro feed posts yet."
-        }
-    }
-}
-
-struct FeedPostService {
-    func fetchRecentPosts(limit: Int = 20) async throws -> [FeedPost] {
-        #if canImport(FirebaseFirestore)
-        do {
-            let snapshot = try await Firestore.firestore()
-                .collection("feedPosts")
-                .order(by: "createdAt", descending: true)
-                .limit(to: limit)
-                .getDocuments()
-
-            return try snapshot.documents.map(makeFeedPost(from:))
-        } catch {
-            throw mapFirestoreError(error)
-        }
-        #else
-        return Array(FeedPost.sampleData.prefix(limit))
-        #endif
-    }
-
-    func createPost(caption: String, user: UserProfile?) async throws {
-        guard let user else {
-            throw FeedPostServiceError.currentUserMissing
-        }
-
-        #if canImport(FirebaseFirestore)
-        let createdAt = Date()
-
-        do {
-            try await Firestore.firestore()
-                .collection("feedPosts")
-                .addDocument(data: [
-                    "userID": user.id,
-                    "username": user.username,
-                    "caption": caption,
-                    "createdAt": Timestamp(date: createdAt),
-                    "likes": 0,
-                    "comments": 0
-                ])
-        } catch {
-            throw mapFirestoreError(error)
-        }
-        #else
-        throw FeedPostServiceError.firebaseSDKMissing
-        #endif
-    }
-
-    #if canImport(FirebaseFirestore)
-    private func makeFeedPost(from document: QueryDocumentSnapshot) throws -> FeedPost {
-        let data = document.data()
-
-        guard
-            let userID = data["userID"] as? String,
-            let username = data["username"] as? String,
-            let caption = data["caption"] as? String
-        else {
-            throw FeedPostServiceError.malformedDocument
-        }
-
-        let createdAtTimestamp = data["createdAt"] as? Timestamp
-        let likes = data["likes"] as? Int ?? 0
-        let comments = data["comments"] as? Int ?? 0
-
-        return FeedPost(
-            id: document.documentID,
-            userID: userID,
-            username: username,
-            caption: caption,
-            createdAt: createdAtTimestamp?.dateValue() ?? .distantPast,
-            likes: likes,
-            comments: comments,
-            gradient: gradient(for: username)
-        )
-    }
-    #endif
-
-    private func gradient(for username: String) -> [Color] {
-        let palette: [[Color]] = [
-            [Color(red: 0.36, green: 0.45, blue: 0.62), Color(red: 0.13, green: 0.17, blue: 0.27)],
-            [Color(red: 0.48, green: 0.53, blue: 0.63), Color(red: 0.19, green: 0.22, blue: 0.33)],
-            [Color(red: 0.18, green: 0.21, blue: 0.35), Color(red: 0.43, green: 0.36, blue: 0.95)],
-            [Color(red: 0.17, green: 0.34, blue: 0.56), Color(red: 0.11, green: 0.14, blue: 0.24)]
-        ]
-
-        let index = abs(username.hashValue) % palette.count
-        return palette[index]
-    }
-
-    private func mapFirestoreError(_ error: Error) -> Error {
-        #if canImport(FirebaseFirestore)
-        let nsError = error as NSError
-        if nsError.domain == FirestoreErrorDomain,
-           let code = FirestoreErrorCode.Code(rawValue: nsError.code),
-           code == .permissionDenied {
-            return FeedPostServiceError.insufficientPermissions
-        }
-        #endif
-
-        return error
-    }
-}

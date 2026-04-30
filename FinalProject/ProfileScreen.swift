@@ -4,10 +4,18 @@
 //
 //  Created by Carlos Fletes on 4/19/26.
 //
+
 import SwiftUI
 
 struct ProfileScreen: View {
     let user: UserProfile?
+    @ObservedObject var viewModel: AppViewModel
+    @State private var showEditProfile = false
+
+    private var userPostCount: Int {
+        guard let user else { return 0 }
+        return viewModel.feedPosts.filter { $0.userID == user.id }.count
+    }
 
     var body: some View {
         ScreenContainer {
@@ -29,24 +37,30 @@ struct ProfileScreen: View {
                                     .foregroundStyle(.white)
                             )
 
-                        Text(user?.username ?? "Astronomy User")
+                        Text(viewModel.currentUser?.username ?? user?.username ?? "Astronomy User")
                             .font(.system(size: 26, weight: .bold, design: .rounded))
                             .foregroundStyle(AstroTheme.ink)
 
-                        Text(user?.email ?? "user@email.com")
+                        Text(viewModel.currentUser?.email ?? user?.email ?? "user@email.com")
                             .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundStyle(AstroTheme.muted)
                     }
                     .padding(.top, 30)
 
                     HStack(spacing: 14) {
-                        profileStat(title: "Posts", value: "24")
+                        profileStat(title: "Posts", value: "\(userPostCount)")
                         profileStat(title: "Saved", value: "18")
                         profileStat(title: "Trips", value: "6")
                     }
 
                     VStack(spacing: 14) {
-                        profileRow(icon: "person.crop.circle", title: "Edit Profile")
+                        Button {
+                            showEditProfile = true
+                        } label: {
+                            profileRow(icon: "person.crop.circle", title: "Edit Profile")
+                        }
+                        .buttonStyle(.plain)
+
                         profileRow(icon: "gearshape", title: "Settings")
                         profileRow(icon: "bell", title: "Notifications")
                         profileRow(icon: "lock.shield", title: "Privacy")
@@ -58,6 +72,12 @@ struct ProfileScreen: View {
         }
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showEditProfile) {
+            EditProfileScreen(user: Binding(
+                get: { viewModel.currentUser },
+                set: { viewModel.currentUser = $0 }
+            ))
+        }
     }
 
     private func profileStat(title: String, value: String) -> some View {
