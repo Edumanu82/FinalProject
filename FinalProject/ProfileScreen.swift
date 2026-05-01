@@ -61,6 +61,11 @@ struct ProfileScreen: View {
                         }
                         .buttonStyle(.plain)
 
+                        NavigationLink(destination: EditPostsScreen(viewModel: viewModel)) {
+                            profileRow(icon: "square.and.pencil", title: "Edit Posts")
+                        }
+                        .buttonStyle(.plain)
+
                         profileRow(icon: "gearshape", title: "Settings")
                         profileRow(icon: "bell", title: "Notifications")
                         profileRow(icon: "lock.shield", title: "Privacy")
@@ -114,3 +119,4 @@ struct ProfileScreen: View {
         .surfaceCard()
     }
 }
+

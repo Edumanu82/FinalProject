@@ -404,6 +404,24 @@ struct HomeScreen: View {
                         }
 
                         Spacer()
+                        
+                        if viewModel.currentUser?.id == post.userID {
+                            Menu {
+                                Button(role: .destructive) {
+                                    Task {
+                                        _ = await viewModel.deletePost(withID: post.id)
+                                    }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(AstroTheme.muted)
+                                    .padding(8)
+                            }
+                            .accessibilityLabel("Post options")
+                        }
                     }
 
                     feedPostMedia(for: post)
