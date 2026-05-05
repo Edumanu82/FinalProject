@@ -14,6 +14,10 @@ import FirebaseFirestore
 
 @MainActor
 final class AppViewModel: ObservableObject {
+    let astronomyService = AstronomyService()
+
+    @Published var skySearchText = ""
+    @Published var searchedStars: [StarResult] = []
     
     @Published var isFeedLoading = false
     @Published var feedErrorMessage = ""
@@ -141,6 +145,15 @@ final class AppViewModel: ObservableObject {
         confirmPassword = ""
         selectedTab = .home
         authMode = .login
+    }
+    func searchSkyObjects() async {
+        errorMessage = ""
+
+        do {
+            searchedStars = try await astronomyService.searchStars(name: skySearchText)
+        } catch {
+            errorMessage = "Could not load sky objects."
+        }
     }
     
     func startFeedListener() {
