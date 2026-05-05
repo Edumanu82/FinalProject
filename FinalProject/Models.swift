@@ -86,15 +86,54 @@ struct CelestialObject: Identifiable {
 }
 
 struct EventCard: Identifiable {
-    let id = UUID()
+    let id: String
     let title: String
     let date: String
+    let category: String
     let detail: String
+    let bestTime: String
+    let viewingTip: String
+    let equipment: String
+    let locationNote: String
+    let sfSymbol: String
 
     static let sampleData: [EventCard] = [
-        .init(title: "Meteor Shower", date: "July 12", detail: "Peak visibility after midnight with clear skies."),
-        .init(title: "Saturn Rise", date: "July 18", detail: "Low eastern horizon viewing just before dawn."),
-        .init(title: "Moonless Sky", date: "July 22", detail: "Best night this month for deep-sky photography.")
+        .init(
+            id: "meteor-shower-july-12",
+            title: "Meteor Shower",
+            date: "July 12",
+            category: "Meteor Shower",
+            detail: "Peak visibility after midnight with clear skies.",
+            bestTime: "12:30 AM - 4:00 AM",
+            viewingTip: "Face northeast, let your eyes adjust for 20 minutes, and avoid checking your phone between streaks.",
+            equipment: "No telescope needed. Bring a reclining chair, warm layer, and a red-light flashlight.",
+            locationNote: "Best from a dark open area away from streetlights and tall buildings.",
+            sfSymbol: "sparkles"
+        ),
+        .init(
+            id: "saturn-rise-july-18",
+            title: "Saturn Rise",
+            date: "July 18",
+            category: "Planet",
+            detail: "Low eastern horizon viewing just before dawn.",
+            bestTime: "4:20 AM - Sunrise",
+            viewingTip: "Find a clear eastern horizon and wait until Saturn climbs above haze near the skyline.",
+            equipment: "Binoculars help locate it; a small telescope gives the best chance of seeing ring shape.",
+            locationNote: "Higher ground improves the view if trees or buildings block the eastern horizon.",
+            sfSymbol: "globe.americas.fill"
+        ),
+        .init(
+            id: "moonless-sky-july-22",
+            title: "Moonless Sky",
+            date: "July 22",
+            category: "Dark Sky",
+            detail: "Best night this month for deep-sky photography.",
+            bestTime: "10:15 PM - 2:30 AM",
+            viewingTip: "Use the darker window to look for the Milky Way, star clusters, and faint nebulae.",
+            equipment: "Tripod, wide lens, remote shutter, and a fully charged battery are ideal.",
+            locationNote: "Drive at least 30 minutes from dense city lighting for a stronger dark-sky payoff.",
+            sfSymbol: "moon.stars.fill"
+        )
     ]
 }
 

@@ -314,25 +314,74 @@ struct HomeScreen: View {
 
     private var eventsSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionHeader(eyebrow: "Events", title: "Upcoming Events", action: "This month")
+            SectionHeader(eyebrow: "Events", title: "Upcoming Events", action: "\(viewModel.savedEventCount) saved")
 
             ForEach(viewModel.upcomingEvents) { event in
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(event.title)
-                            .font(.system(size: 17, weight: .bold, design: .rounded))
-                            .foregroundStyle(AstroTheme.ink)
+                HStack(alignment: .top, spacing: 12) {
+                    NavigationLink(destination: EventDetailScreen(event: event, viewModel: viewModel)) {
+                        HStack(alignment: .top, spacing: 14) {
+                            ZStack {
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [AstroTheme.primary.opacity(0.92), AstroTheme.secondary.opacity(0.86)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
 
-                        Spacer()
+                                Image(systemName: event.sfSymbol)
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                            .frame(width: 46, height: 46)
 
-                        Text(event.date)
-                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                            .foregroundStyle(AstroTheme.primary)
+                            VStack(alignment: .leading, spacing: 7) {
+                                HStack(spacing: 8) {
+                                    Text(event.category.uppercased())
+                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                        .foregroundStyle(AstroTheme.primary)
+
+                                    Text(event.date)
+                                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                                        .foregroundStyle(AstroTheme.muted)
+                                }
+
+                                Text(event.title)
+                                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                                    .foregroundStyle(AstroTheme.ink)
+
+                                Text(event.detail)
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundStyle(AstroTheme.muted)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                Label(event.bestTime, systemImage: "clock.fill")
+                                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                                    .foregroundStyle(AstroTheme.ink.opacity(0.72))
+                            }
+
+                            Spacer(minLength: 0)
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(AstroTheme.muted.opacity(0.7))
+                                .padding(.top, 4)
+                        }
                     }
+                    .buttonStyle(.plain)
 
-                    Text(event.detail)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(AstroTheme.muted)
+                    Button {
+                        viewModel.toggleSavedEvent(event)
+                    } label: {
+                        Image(systemName: viewModel.isEventSaved(event) ? "bookmark.fill" : "bookmark")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(viewModel.isEventSaved(event) ? AstroTheme.primary : AstroTheme.muted)
+                            .frame(width: 38, height: 38)
+                            .background(AstroTheme.surfaceAlt, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(viewModel.isEventSaved(event) ? "Unsave event" : "Save event")
                 }
                 .padding(18)
                 .surfaceCard()
@@ -980,6 +1029,140 @@ private struct CreatePostSheet: View {
                 errorMessage = "The selected photo could not be loaded."
             }
         }
+    }
+}
+
+private struct EventDetailScreen: View {
+    let event: EventCard
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        ScreenContainer {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    eventHero
+                    quickFacts
+                    eventDetailCard(
+                        title: "Viewing Tip",
+                        icon: "eye.fill",
+                        text: event.viewingTip
+                    )
+                    eventDetailCard(
+                        title: "Equipment",
+                        icon: "camera.aperture",
+                        text: event.equipment
+                    )
+                    eventDetailCard(
+                        title: "Location",
+                        icon: "location.fill",
+                        text: event.locationNote
+                    )
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 24)
+                .padding(.bottom, 28)
+            }
+        }
+        .navigationTitle(event.title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var eventHero: some View {
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.15, green: 0.18, blue: 0.34),
+                            AstroTheme.primary.opacity(0.92),
+                            Color(red: 0.08, green: 0.11, blue: 0.20)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(height: 230)
+
+            StarFieldOverlay()
+                .opacity(0.8)
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Label(event.category, systemImage: event.sfSymbol)
+                    Text(event.date)
+                }
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.15), in: Capsule())
+
+                Text(event.title)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Text(event.detail)
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    viewModel.toggleSavedEvent(event)
+                } label: {
+                    Label(viewModel.isEventSaved(event) ? "Saved" : "Save Event", systemImage: viewModel.isEventSaved(event) ? "bookmark.fill" : "bookmark")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(AstroTheme.ink)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.white, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(22)
+        }
+    }
+
+    private var quickFacts: some View {
+        HStack(spacing: 12) {
+            detailFact(title: "Best Time", value: event.bestTime, icon: "clock.fill")
+            detailFact(title: "Date", value: event.date, icon: "calendar")
+        }
+    }
+
+    private func detailFact(title: String, value: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(AstroTheme.primary)
+
+            Text(title)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(AstroTheme.muted)
+
+            Text(value)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(AstroTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .surfaceCard()
+    }
+
+    private func eventDetailCard(title: String, icon: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(AstroTheme.primary)
+
+            Text(text)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(AstroTheme.ink.opacity(0.78))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .surfaceCard()
     }
 }
 
