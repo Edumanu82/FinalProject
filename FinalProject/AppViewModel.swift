@@ -43,6 +43,11 @@ final class AppViewModel: ObservableObject {
     @Published var displayedObjectSearchResults: [SearchableSkyObject] = []
     @Published var isObjectSearchLoading = false
     @Published var astronomyAPIErrorMessage = ""
+    @Published var isDeletingPosts = false
+    @Published var deleteErrorMessage = ""
+    @Published var profilePosts: [FeedPost] = []
+    @Published var isLoadingProfilePosts = false
+    private var profilePostsLastDocument: DocumentSnapshot?
     private var feedListener: ListenerRegistration?
 
     let authService = AstronomyAuthService()
@@ -281,7 +286,105 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func deletePost(withID id: String) async -> String? {
+        guard currentUser != nil else { return "You must be signed in to delete a post." }
+        isDeletingPosts = true
+        deleteErrorMessage = ""
+        do {
+            try await db.collection("feedPosts").document(id).delete()
+            await MainActor.run {
+                self.feedPosts.removeAll { $0.id == id }
+            }
+            isDeletingPosts = false
+            return nil
+        } catch {
+            isDeletingPosts = false
+            deleteErrorMessage = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
+
+    func deletePosts(withIDs ids: [String]) async -> String? {
+        guard currentUser != nil else { return "You must be signed in to delete posts." }
+        guard !ids.isEmpty else { return nil }
+        isDeletingPosts = true
+        deleteErrorMessage = ""
+        do {
+            let batch = db.batch()
+            let collection = db.collection("feedPosts")
+            for id in ids {
+                batch.deleteDocument(collection.document(id))
+            }
+            try await batch.commit()
+            await MainActor.run {
+                self.feedPosts.removeAll { ids.contains($0.id) }
+                self.profilePosts.removeAll { ids.contains($0.id) }
+            }
+            isDeletingPosts = false
+            return nil
+        } catch {
+            isDeletingPosts = false
+            deleteErrorMessage = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
     
+    func resetProfilePostsPagination() {
+        profilePosts = []
+        profilePostsLastDocument = nil
+    }
+
+    func loadMoreProfilePosts(pageSize: Int = 20) async {
+        guard let currentUser else { return }
+        if isLoadingProfilePosts { return }
+        isLoadingProfilePosts = true
+        deleteErrorMessage = ""
+        var query: Query = db.collection("feedPosts")
+            .whereField("userID", isEqualTo: currentUser.id)
+            .order(by: "createdAt", descending: true)
+            .limit(to: pageSize)
+        if let last = profilePostsLastDocument {
+            query = query.start(afterDocument: last)
+        }
+        do {
+            let snapshot = try await query.getDocuments()
+            let newPosts: [FeedPost] = snapshot.documents.compactMap { document in
+                let data = document.data()
+                guard
+                    let userID = data["userID"] as? String,
+                    let username = data["username"] as? String,
+                    let caption = data["caption"] as? String,
+                    let createdAt = data["createdAt"] as? Timestamp,
+                    let likes = data["likes"] as? Int,
+                    let comments = data["comments"] as? Int
+                else { return nil }
+                let imageBase64 = data["imageBase64"] as? String
+                let decodedImageData = imageBase64.flatMap { Data(base64Encoded: $0) }
+                return FeedPost(
+                    id: document.documentID,
+                    userID: userID,
+                    username: username,
+                    caption: caption,
+                    createdAt: createdAt.dateValue(),
+                    likes: likes,
+                    comments: comments,
+                    gradient: [AstroTheme.primary.opacity(0.9), AstroTheme.secondary.opacity(0.8)],
+                    imageData: decodedImageData,
+                    imageBase64: imageBase64
+                )
+            }
+            await MainActor.run {
+                self.profilePosts.append(contentsOf: newPosts)
+                self.profilePostsLastDocument = snapshot.documents.last
+            }
+        } catch {
+            await MainActor.run {
+                self.deleteErrorMessage = error.localizedDescription
+            }
+        }
+        isLoadingProfilePosts = false
+    }
+
     func requestLocationAccess() {
         activeLocationName = nil
         locationManager.requestLocationAccess()
@@ -638,4 +741,3 @@ final class SkyLocationManager: NSObject, ObservableObject, CLLocationManagerDel
     
     
 }
-
