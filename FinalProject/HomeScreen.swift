@@ -15,6 +15,9 @@ struct HomeScreen: View {
     @State private var newPostCaption = ""
     @State private var createPostErrorMessage = ""
     @State private var isSubmittingPost = false
+    @State private var activeCommentsPost: FeedPost?
+    @State private var newCommentText = ""
+    @State private var isSubmittingComment = false
 
     var body: some View {
         NavigationStack {
@@ -404,6 +407,24 @@ struct HomeScreen: View {
                         }
 
                         Spacer()
+                        
+                        if viewModel.currentUser?.id == post.userID {
+                            Menu {
+                                Button(role: .destructive) {
+                                    Task {
+                                        _ = await viewModel.deletePost(withID: post.id)
+                                    }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(AstroTheme.muted)
+                                    .padding(8)
+                            }
+                            .accessibilityLabel("Post options")
+                        }
                     }
 
                     feedPostMedia(for: post)
@@ -412,12 +433,38 @@ struct HomeScreen: View {
                         .font(.system(size: 15, weight: .medium, design: .rounded))
                         .foregroundStyle(AstroTheme.ink.opacity(0.78))
 
-                    HStack(spacing: 18) {
-                        Label("\(post.likes)", systemImage: "heart.fill")
-                        Label("\(post.comments)", systemImage: "message.fill")
+                    HStack(spacing: 12) {
+                        Button {
+                            Task {
+                                _ = await viewModel.toggleLike(for: post)
+                            }
+                        } label: {
+                            Label("\(post.likes)", systemImage: post.isLiked(by: viewModel.currentUser?.id) ? "heart.fill" : "heart")
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    post.isLiked(by: viewModel.currentUser?.id) ? AstroTheme.primary.opacity(0.12) : AstroTheme.surfaceAlt,
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(viewModel.pendingLikePostIDs.contains(post.id))
+                        .foregroundStyle(post.isLiked(by: viewModel.currentUser?.id) ? AstroTheme.primary : AstroTheme.muted)
+                        .accessibilityLabel(post.isLiked(by: viewModel.currentUser?.id) ? "Unlike post" : "Like post")
+
+                        Button {
+                            openComments(for: post)
+                        } label: {
+                            Label("\(post.comments)", systemImage: "message.fill")
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(AstroTheme.surfaceAlt, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(AstroTheme.muted)
+                        .accessibilityLabel("Open comments")
                     }
                     .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(AstroTheme.muted)
                 }
                 .padding(18)
                 .surfaceCard()
@@ -431,6 +478,17 @@ struct HomeScreen: View {
                 errorMessage: $createPostErrorMessage,
                 isSubmittingPost: $isSubmittingPost,
                 onCreatePost: submitNewPost
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $activeCommentsPost, onDismiss: closeComments) { post in
+            CommentsSheet(
+                post: post,
+                viewModel: viewModel,
+                commentText: $newCommentText,
+                isSubmittingComment: $isSubmittingComment,
+                onSubmit: { submitComment(for: post) }
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
@@ -721,6 +779,43 @@ struct HomeScreen: View {
         isSubmittingPost = false
     }
 
+    private func openComments(for post: FeedPost) {
+        newCommentText = ""
+        activeCommentsPost = post
+        viewModel.startCommentsListener(for: post.id)
+    }
+
+    private func closeComments() {
+        viewModel.stopCommentsListener()
+        newCommentText = ""
+        isSubmittingComment = false
+    }
+
+    private func submitComment(for post: FeedPost) {
+        let trimmedComment = newCommentText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedComment.isEmpty else {
+            viewModel.commentsErrorMessage = "Write a comment first."
+            return
+        }
+
+        isSubmittingComment = true
+
+        Task {
+            let errorMessage = await viewModel.addComment(to: post.id, text: trimmedComment)
+
+            await MainActor.run {
+                isSubmittingComment = false
+
+                if let errorMessage {
+                    viewModel.commentsErrorMessage = errorMessage
+                } else {
+                    newCommentText = ""
+                }
+            }
+        }
+    }
+
     private func postGradientPlaceholder(for post: FeedPost) -> some View {
         RoundedRectangle(cornerRadius: 24, style: .continuous)
             .fill(LinearGradient(colors: post.gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -885,5 +980,174 @@ private struct CreatePostSheet: View {
                 errorMessage = "The selected photo could not be loaded."
             }
         }
+    }
+}
+
+private struct CommentsSheet: View {
+    let post: FeedPost
+    @ObservedObject var viewModel: AppViewModel
+    @Binding var commentText: String
+    @Binding var isSubmittingComment: Bool
+
+    let onSubmit: () -> Void
+
+    private var canSubmitComment: Bool {
+        !commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSubmittingComment
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        postPreview
+
+                        if viewModel.isCommentsLoading {
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                    .tint(AstroTheme.primary)
+
+                                Text("Loading comments...")
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundStyle(AstroTheme.muted)
+                            }
+                            .padding(.vertical, 8)
+                        } else if viewModel.activePostComments.isEmpty {
+                            Text("No comments yet.")
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(AstroTheme.muted)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 28)
+                        }
+
+                        ForEach(viewModel.activePostComments) { comment in
+                            commentRow(comment)
+                        }
+
+                        if !viewModel.commentsErrorMessage.isEmpty {
+                            Text(viewModel.commentsErrorMessage)
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundStyle(Color(red: 0.70, green: 0.19, blue: 0.25))
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                    }
+                    .padding(20)
+                }
+
+                Divider()
+
+                HStack(spacing: 10) {
+                    TextField("", text: $commentText, prompt: Text("Add a comment...").foregroundStyle(AstroTheme.muted.opacity(0.65)))
+                        .submitLabel(.send)
+                        .onSubmit {
+                            if canSubmitComment {
+                                onSubmit()
+                            }
+                        }
+                        .foregroundStyle(AstroTheme.ink)
+                        .tint(AstroTheme.primary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(AstroTheme.surfaceAlt, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(AstroTheme.border, lineWidth: 1)
+                        )
+
+                    Button(action: onSubmit) {
+                        Group {
+                            if isSubmittingComment {
+                                ProgressView()
+                                    .tint(.white)
+                            } else {
+                                Image(systemName: "paperplane.fill")
+                                    .font(.system(size: 16, weight: .bold))
+                            }
+                        }
+                        .foregroundStyle(.white)
+                        .frame(width: 46, height: 46)
+                        .background(
+                            LinearGradient(
+                                colors: [AstroTheme.primary, AstroTheme.secondary],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: Circle()
+                        )
+                        .opacity(canSubmitComment ? 1 : 0.45)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSubmitComment)
+                    .accessibilityLabel("Send comment")
+                }
+                .padding(16)
+                .background(AstroTheme.surface)
+            }
+            .background(AstroTheme.canvas)
+            .navigationTitle("Comments")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var postPreview: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(AstroTheme.surfaceAlt)
+                    .frame(width: 36, height: 36)
+                    .overlay(Image(systemName: "person.fill").foregroundStyle(AstroTheme.primary))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(post.username)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(AstroTheme.ink)
+
+                    Text(post.timestampText)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(AstroTheme.muted)
+                }
+            }
+
+            Text(post.caption)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(AstroTheme.ink.opacity(0.78))
+                .lineLimit(3)
+        }
+        .padding(16)
+        .background(AstroTheme.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(AstroTheme.border, lineWidth: 1))
+    }
+
+    private func commentRow(_ comment: PostComment) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Circle()
+                .fill(AstroTheme.primary.opacity(0.12))
+                .frame(width: 34, height: 34)
+                .overlay(Image(systemName: "person.fill").foregroundStyle(AstroTheme.primary))
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(comment.username)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(AstroTheme.ink)
+
+                    Text(comment.timestampText)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(AstroTheme.muted)
+                }
+
+                Text(comment.text)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(AstroTheme.ink.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(AstroTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(AstroTheme.border, lineWidth: 1))
     }
 }

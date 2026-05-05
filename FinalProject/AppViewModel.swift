@@ -18,6 +18,10 @@ final class AppViewModel: ObservableObject {
     @Published var isFeedLoading = false
     @Published var feedErrorMessage = ""
     @Published var feedPosts: [FeedPost] = []
+    @Published var activePostComments: [PostComment] = []
+    @Published var isCommentsLoading = false
+    @Published var commentsErrorMessage = ""
+    @Published var pendingLikePostIDs = Set<String>()
     @Published var currentUser: UserProfile?
     @Published var authMode: AuthMode = .login
     @Published var isLoading = false
@@ -43,7 +47,14 @@ final class AppViewModel: ObservableObject {
     @Published var displayedObjectSearchResults: [SearchableSkyObject] = []
     @Published var isObjectSearchLoading = false
     @Published var astronomyAPIErrorMessage = ""
+    @Published var isDeletingPosts = false
+    @Published var deleteErrorMessage = ""
+    @Published var profilePosts: [FeedPost] = []
+    @Published var isLoadingProfilePosts = false
+    private var profilePostsLastDocument: DocumentSnapshot?
     private var feedListener: ListenerRegistration?
+    private var commentsListener: ListenerRegistration?
+    private var activeCommentsPostID: String?
 
     let authService = AstronomyAuthService()
     let upcomingEvents = EventCard.sampleData
@@ -125,6 +136,7 @@ final class AppViewModel: ObservableObject {
         userListener = nil
         feedListener?.remove()
         feedListener = nil
+        stopCommentsListener()
 
         currentUser = nil
         feedPosts = []
@@ -166,45 +178,7 @@ final class AppViewModel: ObservableObject {
                     return
                 }
 
-                let posts = documents.compactMap { document -> FeedPost? in
-                    let data = document.data()
-
-                    guard
-                        let userID = data["userID"] as? String,
-                        let username = data["username"] as? String,
-                        let caption = data["caption"] as? String,
-                        let createdAt = data["createdAt"] as? Timestamp,
-                        let likes = data["likes"] as? Int,
-                        let comments = data["comments"] as? Int
-                    else {
-                        return nil
-                    }
-
-                    let imageBase64 = data["imageBase64"] as? String
-                    let decodedImageData: Data?
-
-                    if let imageBase64 {
-                        decodedImageData = Data(base64Encoded: imageBase64)
-                    } else {
-                        decodedImageData = nil
-                    }
-
-                    return FeedPost(
-                        id: document.documentID,
-                        userID: userID,
-                        username: username,
-                        caption: caption,
-                        createdAt: createdAt.dateValue(),
-                        likes: likes,
-                        comments: comments,
-                        gradient: [
-                            AstroTheme.primary.opacity(0.9),
-                            AstroTheme.secondary.opacity(0.8)
-                        ],
-                        imageData: decodedImageData,
-                        imageBase64: imageBase64
-                    )
-                }
+                let posts = documents.compactMap { Self.feedPost(from: $0) }
 
                 Task { @MainActor in
                     self.feedPosts = posts
@@ -260,6 +234,7 @@ final class AppViewModel: ObservableObject {
                 "createdAt": Timestamp(date: Date()),
                 "likes": 0,
                 "comments": 0,
+                "likedBy": [],
                 "imageBase64": imageBase64
             ]
 
@@ -281,7 +256,222 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func toggleLike(for post: FeedPost) async -> String? {
+        guard let currentUser else {
+            return "You must be signed in to like a post."
+        }
+
+        guard !pendingLikePostIDs.contains(post.id) else { return nil }
+
+        pendingLikePostIDs.insert(post.id)
+        defer { pendingLikePostIDs.remove(post.id) }
+
+        let postRef = db.collection("feedPosts").document(post.id)
+        let currentUserID = currentUser.id
+
+        do {
+            _ = try await db.runTransaction { transaction, errorPointer -> Any? in
+                do {
+                    let snapshot = try transaction.getDocument(postRef)
+                    let data = snapshot.data() ?? [:]
+                    var likedBy = Self.stringArray(from: data["likedBy"])
+                    let currentLikes = Self.intValue(from: data["likes"])
+
+                    if likedBy.contains(currentUserID) {
+                        likedBy.removeAll { $0 == currentUserID }
+                        transaction.updateData([
+                            "likes": max(currentLikes - 1, 0),
+                            "likedBy": likedBy
+                        ], forDocument: postRef)
+                    } else {
+                        likedBy.append(currentUserID)
+                        transaction.updateData([
+                            "likes": currentLikes + 1,
+                            "likedBy": likedBy
+                        ], forDocument: postRef)
+                    }
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                }
+
+                return nil
+            }
+
+            feedErrorMessage = ""
+            return nil
+        } catch {
+            feedErrorMessage = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
+
+    func startCommentsListener(for postID: String) {
+        commentsListener?.remove()
+        activeCommentsPostID = postID
+        activePostComments = []
+        isCommentsLoading = true
+        commentsErrorMessage = ""
+
+        commentsListener = db.collection("feedPosts")
+            .document(postID)
+            .collection("comments")
+            .order(by: "createdAt", descending: false)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+
+                if let error {
+                    Task { @MainActor in
+                        guard self.activeCommentsPostID == postID else { return }
+                        self.isCommentsLoading = false
+                        self.commentsErrorMessage = error.localizedDescription
+                    }
+                    return
+                }
+
+                let comments = snapshot?.documents.compactMap {
+                    Self.postComment(from: $0, postID: postID)
+                } ?? []
+
+                Task { @MainActor in
+                    guard self.activeCommentsPostID == postID else { return }
+                    self.activePostComments = comments
+                    self.isCommentsLoading = false
+                    self.commentsErrorMessage = ""
+                }
+            }
+    }
+
+    func stopCommentsListener() {
+        commentsListener?.remove()
+        commentsListener = nil
+        activeCommentsPostID = nil
+        activePostComments = []
+        isCommentsLoading = false
+        commentsErrorMessage = ""
+    }
+
+    func addComment(to postID: String, text: String) async -> String? {
+        guard let currentUser else {
+            return "You must be signed in to comment."
+        }
+
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else {
+            return "Write a comment first."
+        }
+
+        let postRef = db.collection("feedPosts").document(postID)
+        let commentRef = postRef.collection("comments").document()
+
+        do {
+            let batch = db.batch()
+            batch.setData([
+                "userID": currentUser.id,
+                "username": currentUser.username,
+                "text": trimmedText,
+                "createdAt": Timestamp(date: Date())
+            ], forDocument: commentRef)
+            batch.updateData([
+                "comments": FieldValue.increment(Int64(1))
+            ], forDocument: postRef)
+
+            try await batch.commit()
+            commentsErrorMessage = ""
+            return nil
+        } catch {
+            commentsErrorMessage = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
+
+    func deletePost(withID id: String) async -> String? {
+        guard currentUser != nil else { return "You must be signed in to delete a post." }
+        isDeletingPosts = true
+        deleteErrorMessage = ""
+        do {
+            let postRef = db.collection("feedPosts").document(id)
+            let commentsSnapshot = try await postRef.collection("comments").getDocuments()
+            let batch = db.batch()
+            for commentDocument in commentsSnapshot.documents {
+                batch.deleteDocument(commentDocument.reference)
+            }
+            batch.deleteDocument(postRef)
+            try await batch.commit()
+            await MainActor.run {
+                self.feedPosts.removeAll { $0.id == id }
+                self.profilePosts.removeAll { $0.id == id }
+            }
+            isDeletingPosts = false
+            return nil
+        } catch {
+            isDeletingPosts = false
+            deleteErrorMessage = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
+
+    func deletePosts(withIDs ids: [String]) async -> String? {
+        guard currentUser != nil else { return "You must be signed in to delete posts." }
+        guard !ids.isEmpty else { return nil }
+        isDeletingPosts = true
+        deleteErrorMessage = ""
+        do {
+            let batch = db.batch()
+            let collection = db.collection("feedPosts")
+            for id in ids {
+                let postRef = collection.document(id)
+                let commentsSnapshot = try await postRef.collection("comments").getDocuments()
+                for commentDocument in commentsSnapshot.documents {
+                    batch.deleteDocument(commentDocument.reference)
+                }
+                batch.deleteDocument(postRef)
+            }
+            try await batch.commit()
+            await MainActor.run {
+                self.feedPosts.removeAll { ids.contains($0.id) }
+                self.profilePosts.removeAll { ids.contains($0.id) }
+            }
+            isDeletingPosts = false
+            return nil
+        } catch {
+            isDeletingPosts = false
+            deleteErrorMessage = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
     
+    func resetProfilePostsPagination() {
+        profilePosts = []
+        profilePostsLastDocument = nil
+    }
+
+    func loadMoreProfilePosts(pageSize: Int = 20) async {
+        guard let currentUser else { return }
+        if isLoadingProfilePosts { return }
+        isLoadingProfilePosts = true
+        deleteErrorMessage = ""
+        var query: Query = db.collection("feedPosts")
+            .whereField("userID", isEqualTo: currentUser.id)
+            .order(by: "createdAt", descending: true)
+            .limit(to: pageSize)
+        if let last = profilePostsLastDocument {
+            query = query.start(afterDocument: last)
+        }
+        do {
+            let snapshot = try await query.getDocuments()
+            let newPosts = snapshot.documents.compactMap { Self.feedPost(from: $0) }
+            await MainActor.run {
+                self.profilePosts.append(contentsOf: newPosts)
+                self.profilePostsLastDocument = snapshot.documents.last
+            }
+        } catch {
+            await MainActor.run {
+                self.deleteErrorMessage = error.localizedDescription
+            }
+        }
+        isLoadingProfilePosts = false
+    }
+
     func requestLocationAccess() {
         activeLocationName = nil
         locationManager.requestLocationAccess()
@@ -424,12 +614,92 @@ final class AppViewModel: ObservableObject {
                 self.userListener = nil
                 self.feedListener?.remove()
                 self.feedListener = nil
+                self.stopCommentsListener()
                 self.currentUser = nil
                 self.feedPosts = []
                 self.feedErrorMessage = ""
                 self.isFeedLoading = false
             }
         }
+    }
+
+    private nonisolated static func feedPost(from document: QueryDocumentSnapshot) -> FeedPost? {
+        let data = document.data()
+
+        guard
+            let userID = data["userID"] as? String,
+            let username = data["username"] as? String,
+            let caption = data["caption"] as? String,
+            let createdAt = data["createdAt"] as? Timestamp
+        else {
+            return nil
+        }
+
+        let imageBase64 = data["imageBase64"] as? String
+        let decodedImageData = imageBase64.flatMap { Data(base64Encoded: $0) }
+
+        return FeedPost(
+            id: document.documentID,
+            userID: userID,
+            username: username,
+            caption: caption,
+            createdAt: createdAt.dateValue(),
+            likes: intValue(from: data["likes"]),
+            comments: intValue(from: data["comments"]),
+            likedBy: stringArray(from: data["likedBy"]),
+            gradient: [
+                AstroTheme.primary.opacity(0.9),
+                AstroTheme.secondary.opacity(0.8)
+            ],
+            imageData: decodedImageData,
+            imageBase64: imageBase64
+        )
+    }
+
+    private nonisolated static func postComment(from document: QueryDocumentSnapshot, postID: String) -> PostComment? {
+        let data = document.data()
+
+        guard
+            let userID = data["userID"] as? String,
+            let username = data["username"] as? String,
+            let text = data["text"] as? String,
+            let createdAt = data["createdAt"] as? Timestamp
+        else {
+            return nil
+        }
+
+        return PostComment(
+            id: document.documentID,
+            postID: postID,
+            userID: userID,
+            username: username,
+            text: text,
+            createdAt: createdAt.dateValue()
+        )
+    }
+
+    private nonisolated static func intValue(from value: Any?) -> Int {
+        if let value = value as? Int {
+            return value
+        }
+
+        if let value = value as? NSNumber {
+            return value.intValue
+        }
+
+        return 0
+    }
+
+    private nonisolated static func stringArray(from value: Any?) -> [String] {
+        if let values = value as? [String] {
+            return values
+        }
+
+        if let values = value as? [Any] {
+            return values.compactMap { $0 as? String }
+        }
+
+        return []
     }
 
     private func startUserListener(for uid: String) {
@@ -638,4 +908,3 @@ final class SkyLocationManager: NSObject, ObservableObject, CLLocationManagerDel
     
     
 }
-

@@ -106,12 +106,18 @@ struct FeedPost: Identifiable {
     let createdAt: Date
     let likes: Int
     let comments: Int
+    let likedBy: [String]
     let gradient: [Color]
     let imageData: Data?
     let imageBase64: String?
 
     var timestampText: String {
         RelativeDateTimeFormatter().localizedString(for: createdAt, relativeTo: Date())
+    }
+
+    func isLiked(by userID: String?) -> Bool {
+        guard let userID else { return false }
+        return likedBy.contains(userID)
     }
 
     static let sampleData: [FeedPost] = [
@@ -123,6 +129,7 @@ struct FeedPost: Identifiable {
             createdAt: Date().addingTimeInterval(-7_200),
             likes: 128,
             comments: 24,
+            likedBy: [],
             gradient: [Color(red: 0.36, green: 0.45, blue: 0.62), Color(red: 0.13, green: 0.17, blue: 0.27)],
             imageData: nil,
             imageBase64: nil
@@ -135,11 +142,25 @@ struct FeedPost: Identifiable {
             createdAt: Date().addingTimeInterval(-18_000),
             likes: 94,
             comments: 11,
+            likedBy: [],
             gradient: [Color(red: 0.48, green: 0.53, blue: 0.63), Color(red: 0.19, green: 0.22, blue: 0.33)],
             imageData: nil,
             imageBase64: nil
         )
     ]
+}
+
+struct PostComment: Identifiable {
+    let id: String
+    let postID: String
+    let userID: String
+    let username: String
+    let text: String
+    let createdAt: Date
+
+    var timestampText: String {
+        RelativeDateTimeFormatter().localizedString(for: createdAt, relativeTo: Date())
+    }
 }
 struct AuthResponse: Codable {
     let user: UserProfile?
