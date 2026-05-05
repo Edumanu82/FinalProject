@@ -51,6 +51,7 @@ final class AppViewModel: ObservableObject {
     @Published var deleteErrorMessage = ""
     @Published var profilePosts: [FeedPost] = []
     @Published var isLoadingProfilePosts = false
+    @Published var savedEventIDs = Set<String>()
     private var profilePostsLastDocument: DocumentSnapshot?
     private var feedListener: ListenerRegistration?
     private var commentsListener: ListenerRegistration?
@@ -70,6 +71,7 @@ final class AppViewModel: ObservableObject {
 
     init() {
         currentUser = authService.currentUser
+        loadSavedEvents()
         bindLocationUpdates()
         bindAuthState()
         startFeedListener()
@@ -93,6 +95,7 @@ final class AppViewModel: ObservableObject {
         await runAuthAction {
             let user = try await authService.login(email: loginEmail, password: loginPassword)
             currentUser = user
+            loadSavedEvents()
             feedErrorMessage = ""
             startUserListener(for: user.id)
             startFeedListener()
@@ -119,6 +122,7 @@ final class AppViewModel: ObservableObject {
                 password: signUpPassword
             )
             currentUser = user
+            loadSavedEvents()
             feedErrorMessage = ""
             startUserListener(for: user.id)
             startFeedListener()
@@ -139,6 +143,7 @@ final class AppViewModel: ObservableObject {
         stopCommentsListener()
 
         currentUser = nil
+        savedEventIDs = []
         feedPosts = []
         feedErrorMessage = ""
         isFeedLoading = false
@@ -254,6 +259,24 @@ final class AppViewModel: ObservableObject {
             feedErrorMessage = error.localizedDescription
             return error.localizedDescription
         }
+    }
+
+    var savedEventCount: Int {
+        savedEventIDs.count
+    }
+
+    func isEventSaved(_ event: EventCard) -> Bool {
+        savedEventIDs.contains(event.id)
+    }
+
+    func toggleSavedEvent(_ event: EventCard) {
+        if savedEventIDs.contains(event.id) {
+            savedEventIDs.remove(event.id)
+        } else {
+            savedEventIDs.insert(event.id)
+        }
+
+        saveSavedEvents()
     }
 
     func toggleLike(for post: FeedPost) async -> String? {
@@ -726,8 +749,22 @@ final class AppViewModel: ObservableObject {
                     username: username,
                     email: email
                 )
+                self.loadSavedEvents()
             }
         }
+    }
+
+    private var savedEventsStorageKey: String {
+        "savedEventIDs.\(currentUser?.id ?? "local")"
+    }
+
+    private func loadSavedEvents() {
+        let ids = UserDefaults.standard.stringArray(forKey: savedEventsStorageKey) ?? []
+        savedEventIDs = Set(ids)
+    }
+
+    private func saveSavedEvents() {
+        UserDefaults.standard.set(Array(savedEventIDs).sorted(), forKey: savedEventsStorageKey)
     }
 
     private func baseSearchResults(for query: String) -> [SearchableSkyObject] {

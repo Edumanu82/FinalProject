@@ -49,7 +49,7 @@ struct ProfileScreen: View {
 
                     HStack(spacing: 14) {
                         profileStat(title: "Posts", value: "\(userPostCount)")
-                        profileStat(title: "Saved", value: "18")
+                        profileStat(title: "Saved", value: "\(viewModel.savedEventCount)")
                         profileStat(title: "Trips", value: "6")
                     }
 
@@ -119,4 +119,3 @@ struct ProfileScreen: View {
         .surfaceCard()
     }
 }
-
