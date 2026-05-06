@@ -2,8 +2,6 @@
 //  Models.swift
 //  FinalProject
 //
-//  Created by Codex on 4/15/26.
-//
 
 import CoreLocation
 import SwiftUI
