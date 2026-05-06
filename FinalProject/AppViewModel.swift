@@ -2,8 +2,6 @@
 //  AppViewModel.swift
 //  FinalProject
 //
-//  Created by Codex on 4/15/26.
-//
 
 import Combine
 import CoreLocation
@@ -940,7 +938,7 @@ final class SkyLocationManager: NSObject, ObservableObject, CLLocationManagerDel
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        // Keep the current fallback snapshot if the system cannot provide a location update.
+
     }
     
     

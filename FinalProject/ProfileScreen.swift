@@ -2,8 +2,6 @@
 //  ProfileScreen.swift
 //  FinalProject
 //
-//  Created by Carlos Fletes on 4/19/26.
-//
 
 import SwiftUI
 
